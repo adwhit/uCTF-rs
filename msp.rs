@@ -251,6 +251,8 @@ fn getAddressingMode(As: u8) -> AddressingMode {
 
 impl Cpu {
 
+    // memory/register interface
+
     fn load(&mut self, regadr: u16, mode: AddressingMode) -> u16 {
         let regval = self.regs.load(regadr);
         match mode {
@@ -282,6 +284,8 @@ impl Cpu {
             }
         }
     }
+
+    //caller functions
 
     fn caller(&mut self) {
         match self.inst.optype {
@@ -359,13 +363,23 @@ impl Cpu {
         val
     }
 
+    // load instruction from ram and increment pc
     fn next_inst(&mut self) -> u16 {
         let inst = self.ram.loadw(self.regs.arr[0]);
         self.regs.arr[0] += 2;
         inst
     }
 
-    //instructions
+    // load and execute one instruction
+    fn step(&mut self) { 
+        let code = self.next_inst();
+        self.inst = parse_inst(code);
+        self.caller()
+    }
+
+
+    //Instructions
+
     // No args
 
     fn JNE(&mut self) {
@@ -476,13 +490,6 @@ impl Cpu {
     }
 
     fn AND(&mut self) {
-    }
-
-    // step pc forward and return instruction
-    fn step(&mut self) { 
-        let code = self.next_inst();
-        self.inst = parse_inst(code);
-        self.caller()
     }
 
     fn new() -> Cpu { 
