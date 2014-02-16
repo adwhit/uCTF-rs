@@ -45,32 +45,45 @@ static ZEROF : u16 = 1 << 1;
 static NEGF : u16 = 1 << 2;
 static OVERF : u16 = 1 << 8;
 
-struct Regs([u16, ..15]);
+trait Mem {
+    fn loadb(&self, addr: u16) -> u8;
+    fn storeb(&mut self, addr: u16, val: u8);
+}
 
-struct Ram([u8, ..0x10000]);
+trait MemUtil {
+    fn loadw(&self, addr: u16) -> u16;
+    fn storew(&mut self, addr: u16, val: u16);
+}
 
-impl Ram {
-    fn loadb(&self, addr: u16) -> u8         { self[addr] }
-    fn storeb(&mut self, addr: u16, val: u8) { self[addr] = val }
+impl<M:Mem> MemUtil for M {
     fn loadw(&self, addr: u16) -> u16 {
         self.loadb(addr) as u16 | (self.loadb(addr +1) as u16 << 8)
     }
     fn storew(&mut self, addr: u16, val: u16) {
-        self.storeb(addr, val & 0xff);
-        self.storeb(addr + 1, val >> 8);
+        self.storeb(addr, (val & 0xff) as u8);
+        self.storeb(addr + 1, (val >> 8) as u8);
     }
 }
 
 struct Cpu {
-    regs: Regs,
-    mem: Ram,
+    regs: [u16, ..15],
+    ram: [u8, ..0x10000]
 }
 
-fn caller(inst: u16) {
+impl Mem for Cpu {
+    fn loadb(&self, addr: u16) -> u8 {
+        self.ram[addr & 0x7ff]
+    }
+    fn storeb(&mut self, addr: u16, val: u8) {
+        self.ram[addr & 0x7ff] = val
+    }
+}
+
+fn caller(cpu: &mut Cpu, inst: u16) {
     match opformat(inst) {
-        NoArg => noarg_caller(inst),
-        OneArg => onearg_caller(inst),
-        TwoArg => twoarg_caller(inst),
+        NoArg => noarg_caller(cpu, inst),
+        OneArg => onearg_caller(cpu, inst),
+        TwoArg => twoarg_caller(cpu, inst),
     }
 }
 
@@ -111,46 +124,46 @@ fn noarg_split(inst: u16) -> (u8, u16) {
 }
 
 
-fn noarg_caller(inst: u16) {
+fn noarg_caller(cpu: &mut Cpu, inst: u16) {
     match noarg_split(inst) {
-    (0b000, offset) => JNE(offset),
-    (0b001, offset) => JEQ(offset),
-    (0b010, offset) => JNC(offset),
-    (0b011, offset) => JC(offset),
-    (0b100, offset) => JN(offset),
-    (0b101, offset) => JGE(offset),
-    (0b110, offset) => JL(offset),
-    (0b111, offset) => JMP(offset),
+    (0b000, offset) => cpu.JNE(offset),
+    (0b001, offset) => cpu.JEQ(offset),
+    (0b010, offset) => cpu.JNC(offset),
+    (0b011, offset) => cpu.JC(offset),
+    (0b100, offset) => cpu.JN(offset),
+    (0b101, offset) => cpu.JGE(offset),
+    (0b110, offset) => cpu.JL(offset),
+    (0b111, offset) => cpu.JMP(offset),
     (_, offset) => fail!("Illegal match in noarg")
     }
 }
 
-fn onearg_caller(inst: u16) {
+fn onearg_caller(cpu: &mut Cpu, inst: u16) {
     match onearg_split(inst) {
-    (0b000, bw, Ad, destreg) => RRC(bw,Ad,destreg),
-    (0b001, bw, Ad, destreg) => SWPB(bw,Ad,destreg),
-    (0b010, bw, Ad, destreg) => RRA(bw,Ad,destreg),
-    (0b011, bw, Ad, destreg) => SXT(bw,Ad,destreg),
-    (0b100, bw, Ad, destreg) => PUSH(bw,Ad,destreg),
-    (0b101, bw, Ad, destreg) => CALL(bw,Ad,destreg),
-    (0b110, bw, Ad, destreg) => RETI(bw,Ad,destreg),
+    (0b000, bw, Ad, destreg) => cpu.RRC(bw,Ad,destreg),
+    (0b001, bw, Ad, destreg) => cpu.SWPB(bw,Ad,destreg),
+    (0b010, bw, Ad, destreg) => cpu.RRA(bw,Ad,destreg),
+    (0b011, bw, Ad, destreg) => cpu.SXT(bw,Ad,destreg),
+    (0b100, bw, Ad, destreg) => cpu.PUSH(bw,Ad,destreg),
+    (0b101, bw, Ad, destreg) => cpu.CALL(bw,Ad,destreg),
+    (0b110, bw, Ad, destreg) => cpu.RETI(bw,Ad,destreg),
     (_, bw, Ad, destreg) => fail!("Illegal match in onearg")
     }
 }
 
-fn twoarg_caller(inst: u16) {
+fn twoarg_caller(cpu: &mut Cpu, inst: u16) {
     match twoarg_split(inst) {
-    (0b0100, sourcereg, Ad, bw, As, destreg) => MOV(sourcereg, Ad, bw, As, destreg),
-    (0b0101, sourcereg, Ad, bw, As, destreg) => ADD(sourcereg, Ad, bw, As, destreg),
-    (0b0110, sourcereg, Ad, bw, As, destreg) => ADDC(sourcereg, Ad, bw, As, destreg),
-    (0b0111, sourcereg, Ad, bw, As, destreg) => SUBC(sourcereg, Ad, bw, As, destreg),
-    (0b1001, sourcereg, Ad, bw, As, destreg) => SUB(sourcereg, Ad, bw, As, destreg),
-    (0b1010, sourcereg, Ad, bw, As, destreg) => DADD(sourcereg, Ad, bw, As, destreg),
-    (0b1011, sourcereg, Ad, bw, As, destreg) => BIT(sourcereg, Ad, bw, As, destreg),
-    (0b1100, sourcereg, Ad, bw, As, destreg) => BIC(sourcereg, Ad, bw, As, destreg),
-    (0b1101, sourcereg, Ad, bw, As, destreg) => BIS(sourcereg, Ad, bw, As, destreg),
-    (0b1110, sourcereg, Ad, bw, As, destreg) => XOR(sourcereg, Ad, bw, As, destreg),
-    (0b1111, sourcereg, Ad, bw, As, destreg) => AND(sourcereg, Ad, bw, As, destreg),
+    (0b0100, sourcereg, Ad, bw, As, destreg) => cpu.MOV(sourcereg, Ad, bw, As, destreg),
+    (0b0101, sourcereg, Ad, bw, As, destreg) => cpu.ADD(sourcereg, Ad, bw, As, destreg),
+    (0b0110, sourcereg, Ad, bw, As, destreg) => cpu.ADDC(sourcereg, Ad, bw, As, destreg),
+    (0b0111, sourcereg, Ad, bw, As, destreg) => cpu.SUBC(sourcereg, Ad, bw, As, destreg),
+    (0b1001, sourcereg, Ad, bw, As, destreg) => cpu.SUB(sourcereg, Ad, bw, As, destreg),
+    (0b1010, sourcereg, Ad, bw, As, destreg) => cpu.DADD(sourcereg, Ad, bw, As, destreg),
+    (0b1011, sourcereg, Ad, bw, As, destreg) => cpu.BIT(sourcereg, Ad, bw, As, destreg),
+    (0b1100, sourcereg, Ad, bw, As, destreg) => cpu.BIC(sourcereg, Ad, bw, As, destreg),
+    (0b1101, sourcereg, Ad, bw, As, destreg) => cpu.BIS(sourcereg, Ad, bw, As, destreg),
+    (0b1110, sourcereg, Ad, bw, As, destreg) => cpu.XOR(sourcereg, Ad, bw, As, destreg),
+    (0b1111, sourcereg, Ad, bw, As, destreg) => cpu.AND(sourcereg, Ad, bw, As, destreg),
     (_,_,_,_,_,_) => fail!("Illegal match in twoarg")
     }
 }
@@ -170,7 +183,7 @@ impl Cpu {
 
     fn set_zn(&mut self, val: u16) -> u16 {
         self.set_flag(ZEROF, val == 0);
-        self.set_falg(NEGF, val & 0x8000 != 0);
+        self.set_flag(NEGF, val & 0x8000 != 0);
         val
     }
 
@@ -180,36 +193,43 @@ impl Cpu {
     fn JNE(&mut self, offset: u16) {
         if (self.regs[2] & ZEROF) != 0 {
            self.regs[0] = self.regs[0] + offset
+        }
     }
 
     fn JEQ(&mut self, offset: u16) {
         if (self.regs[2] & ZEROF) == 0 {
            self.regs[0] = self.regs[0] + offset
+        }
     }
 
     fn JNC(&mut self, offset: u16) {
         if (self.regs[2] & CARRYF) == 0 {
            self.regs[0] = self.regs[0] + offset
+        }
     }
 
     fn JC(&mut self, offset: u16) {
         if (self.regs[2] & CARRYF) != 0 {
            self.regs[0] = self.regs[0] + offset
+        }
     }
 
     fn JN(&mut self, offset: u16) {
         if (self.regs[2] & NEGF) != 0 {
            self.regs[0] = self.regs[0] + offset
+        }
     }
 
     fn JGE(&mut self, offset: u16) {
         if (self.regs[2] & NEGF) == ((self.regs[2] & OVERF) >> 6)  {
            self.regs[0] = self.regs[0] + offset
+        }
     }
 
     fn JL(&mut self, offset: u16) {
         if (self.regs[2] & NEGF) != ((self.regs[2] & OVERF) >> 6)  {
            self.regs[0] = self.regs[0] + offset
+        }
     }
 
     fn JMP(&mut self, offset: u16) {
@@ -218,67 +238,77 @@ impl Cpu {
 
     // One arg
 
-    fn RRC(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn RRC(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
-    fn SWPB(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn SWPB(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
-    fn RRA(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn RRA(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
-    fn SXT(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn SXT(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
-    fn PUSH(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn PUSH(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
-    fn CALL(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn CALL(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
-    fn RET(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn RET(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
-    fn RETI(&mut self, bw: bool, Ad: u8, dest: u16) {
+    fn RETI(&mut self, bw: bool, Ad: u8, dest: u8) {
     }
 
     // Two arg
 
-    fn MOV(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn MOV(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn ADD(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn ADD(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn ADDC(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn ADDC(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn SUBC(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn SUBC(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn SUB(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn SUB(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn CMP(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn CMP(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn DADD(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn DADD(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn BIT(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn BIT(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn BIC(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn BIC(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn BIS(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn BIS(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn XOR(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn XOR(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
 
-    fn AND(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    fn AND(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
     }
+
+    fn step(&mut self) {
+        let instr = self.regs[0];
+        caller(self, instr)
+
+    }
+
+    fn new() -> Cpu { 
+        Cpu {regs: [0, ..15], ram: [0, ..0x10000]}
+    } 
 }
 
 #[test]
@@ -310,3 +340,10 @@ fn twoarg_split_test() {
         assert_eq!(destreg, destregs[ix]);
     }
 }
+
+#[test]
+fn cpu_test() {
+    let mut cpu = Cpu::new();
+    println!("{:?}", cpu)
+}
+
