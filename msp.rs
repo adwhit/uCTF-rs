@@ -38,14 +38,30 @@ enum Opformat {
     TwoArg
 }
 
-type Cycles = u64;
+//Flags
 
-type Regs = [u16, ..15];
+static CARRYF : u16 = 1;
+static ZEROF : u16 = 1 << 1;
+static NEGF : u16 = 1 << 2;
+static OVERF : u16 = 1 << 8;
 
-pub struct Ram([u8, ..0x10000]);
+struct Regs([u16, ..15]);
+
+struct Ram([u8, ..0x10000]);
+
+impl Ram {
+    fn loadb(&self, addr: u16) -> u8         { self[addr] }
+    fn storeb(&mut self, addr: u16, val: u8) { self[addr] = val }
+    fn loadw(&self, addr: u16) -> u16 {
+        self.loadb(addr) as u16 | (self.loadb(addr +1) as u16 << 8)
+    }
+    fn storew(&mut self, addr: u16, val: u16) {
+        self.storeb(addr, val & 0xff);
+        self.storeb(addr + 1, val >> 8);
+    }
+}
 
 struct Cpu<M> {
-    cy: Cycles,
     regs: Regs,
     mem: M,
 }
@@ -124,105 +140,132 @@ fn onearg_caller(inst: u16) {
 
 fn twoarg_caller(inst: u16) {
     match twoarg_split(inst) {
-    (0100, sourcereg, Ad, bw, As, destreg) => MOV(sourcereg, Ad, bw, As, destreg),
-    (0101, sourcereg, Ad, bw, As, destreg) => ADD(sourcereg, Ad, bw, As, destreg),
-    (0110, sourcereg, Ad, bw, As, destreg) => ADDC(sourcereg, Ad, bw, As, destreg),
-    (0111, sourcereg, Ad, bw, As, destreg) => SUBC(sourcereg, Ad, bw, As, destreg),
-    (1001, sourcereg, Ad, bw, As, destreg) => SUB(sourcereg, Ad, bw, As, destreg),
-    (1010, sourcereg, Ad, bw, As, destreg) => DADD(sourcereg, Ad, bw, As, destreg),
-    (1011, sourcereg, Ad, bw, As, destreg) => BIT(sourcereg, Ad, bw, As, destreg),
-    (1100, sourcereg, Ad, bw, As, destreg) => BIC(sourcereg, Ad, bw, As, destreg),
-    (1101, sourcereg, Ad, bw, As, destreg) => BIS(sourcereg, Ad, bw, As, destreg),
-    (1110, sourcereg, Ad, bw, As, destreg) => XOR(sourcereg, Ad, bw, As, destreg),
-    (1111, sourcereg, Ad, bw, As, destreg) => AND(sourcereg, Ad, bw, As, destreg),
+    (0b0100, sourcereg, Ad, bw, As, destreg) => MOV(sourcereg, Ad, bw, As, destreg),
+    (0b0101, sourcereg, Ad, bw, As, destreg) => ADD(sourcereg, Ad, bw, As, destreg),
+    (0b0110, sourcereg, Ad, bw, As, destreg) => ADDC(sourcereg, Ad, bw, As, destreg),
+    (0b0111, sourcereg, Ad, bw, As, destreg) => SUBC(sourcereg, Ad, bw, As, destreg),
+    (0b1001, sourcereg, Ad, bw, As, destreg) => SUB(sourcereg, Ad, bw, As, destreg),
+    (0b1010, sourcereg, Ad, bw, As, destreg) => DADD(sourcereg, Ad, bw, As, destreg),
+    (0b1011, sourcereg, Ad, bw, As, destreg) => BIT(sourcereg, Ad, bw, As, destreg),
+    (0b1100, sourcereg, Ad, bw, As, destreg) => BIC(sourcereg, Ad, bw, As, destreg),
+    (0b1101, sourcereg, Ad, bw, As, destreg) => BIS(sourcereg, Ad, bw, As, destreg),
+    (0b1110, sourcereg, Ad, bw, As, destreg) => XOR(sourcereg, Ad, bw, As, destreg),
+    (0b1111, sourcereg, Ad, bw, As, destreg) => AND(sourcereg, Ad, bw, As, destreg),
     (_,_,_,_,_,_) => fail!("Illegal match in twoarg")
     }
 }
 
 // Operations
 
-fn MOV() {
-}
+impl Cpu {
 
-fn ADD() {
-}
+    // utility functions
+    fn set_flag(&mut self, flag: u16, on: bool ) {
+        if on {
+            self.regs[2] = self.regs[2] | flag
+        } else {
+            self.regs[2] = self.regs[2] & !flag
+        }
+    }
 
-fn ADDC() {
-}
+    fn set_zn(&mut self, val: u16) -> u16 {
+        self.set_flag(ZEROF, val == 0);
+        self.set_falg(NEGF, val & 0x8000 != 0);
+        val
+    }
 
-fn SUBC() {
-}
+    //instructions
+    // No args
 
-fn SUB() {
-}
+    fn JNE(&mut self, offset: u16) {
+        if (self.regs[2] & ZEROF) != 0 {
+           self.regs[0] = self.regs[0] + offset
+    }
 
-fn CMP() {
-}
+    fn JEQ(&mut self, offset: u16) {
+    }
 
-fn DADD() {
-}
+    fn JNC(&mut self, offset: u16) {
+    }
 
-fn BIT() {
-}
+    fn JC(&mut self, offset: u16) {
+    }
 
-fn BIC() {
-}
+    fn JN(&mut self, offset: u16) {
+    }
 
-fn BIS() {
-}
+    fn JGE(&mut self, offset: u16) {
+    }
 
-fn XOR() {
-}
+    fn JL(&mut self, offset: u16) {
+    }
 
-fn AND() {
-}
+    fn JMP(&mut self, offset: u16) {
+    }
 
-fn JNE() {
-}
+    // One arg
 
-fn JEQ() {
-}
+    fn RRC(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn JNC() {
-}
+    fn SWPB(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn JC() {
-}
+    fn RRA(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn JN() {
-}
+    fn SXT(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn JGE() {
-}
+    fn PUSH(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn JL() {
-}
+    fn CALL(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn JMP() {
-}
+    fn RET(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn RRC() {
-}
+    fn RETI(&mut self, bw: bool, Ad: u8, dest: u16) {
+    }
 
-fn SWPB() {
-}
+    // Two arg
 
-fn RRA() {
-}
+    fn MOV(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
 
-fn SXT() {
-}
+    fn ADD(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
 
-fn PUSH() {
-}
+    fn ADDC(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
 
-fn CALL() {
-}
+    fn SUBC(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
 
-fn RET() {
-}
+    fn SUB(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
 
-fn RETI() {
+    fn CMP(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
+
+    fn DADD(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
+
+    fn BIT(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
+
+    fn BIC(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
+
+    fn BIS(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
+
+    fn XOR(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
+
+    fn AND(&mut self, src: u16, Ad: bool, bw: bool, As: u8, dest: u16) {
+    }
 }
 
 #[test]
