@@ -61,9 +61,9 @@ impl Ram {
     }
 }
 
-struct Cpu<M> {
+struct Cpu {
     regs: Regs,
-    mem: M,
+    mem: Ram,
 }
 
 fn caller(inst: u16) {
@@ -183,24 +183,37 @@ impl Cpu {
     }
 
     fn JEQ(&mut self, offset: u16) {
+        if (self.regs[2] & ZEROF) == 0 {
+           self.regs[0] = self.regs[0] + offset
     }
 
     fn JNC(&mut self, offset: u16) {
+        if (self.regs[2] & CARRYF) == 0 {
+           self.regs[0] = self.regs[0] + offset
     }
 
     fn JC(&mut self, offset: u16) {
+        if (self.regs[2] & CARRYF) != 0 {
+           self.regs[0] = self.regs[0] + offset
     }
 
     fn JN(&mut self, offset: u16) {
+        if (self.regs[2] & NEGF) != 0 {
+           self.regs[0] = self.regs[0] + offset
     }
 
     fn JGE(&mut self, offset: u16) {
+        if (self.regs[2] & NEGF) == ((self.regs[2] & OVERF) >> 6)  {
+           self.regs[0] = self.regs[0] + offset
     }
 
     fn JL(&mut self, offset: u16) {
+        if (self.regs[2] & NEGF) != ((self.regs[2] & OVERF) >> 6)  {
+           self.regs[0] = self.regs[0] + offset
     }
 
     fn JMP(&mut self, offset: u16) {
+       self.regs[0] = self.regs[0] + offset
     }
 
     // One arg
