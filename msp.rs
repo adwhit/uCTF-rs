@@ -166,6 +166,7 @@ enum AddressingMode {
 }
 
 fn get_optype(code: u16) -> OpType {
+    println!("{:016t}, {:u}",code, code >> 12)
     match code >> 12 {
         0 => NoArg,
         1 => OneArg,
@@ -335,7 +336,16 @@ impl Cpu {
     }
 
     // utility functions
-    fn set_flag(&mut self, flag: u16, on: bool ) {
+
+    fn getflag(self, flag: u16) -> bool {
+        if (self.regs.arr[2] & flag) == 0 {
+            false
+        } else {
+            true
+        }
+    }
+
+    fn setflag(&mut self, flag: u16, on: bool ) {
         if on {
             self.regs.arr[2] = self.regs.arr[2] | flag
         } else {
@@ -344,8 +354,8 @@ impl Cpu {
     }
 
     fn set_zn(&mut self, val: u16) -> u16 {
-        self.set_flag(ZEROF, val == 0);
-        self.set_flag(NEGF, val & 0x8000 != 0);
+        self.setflag(ZEROF, val == 0);
+        self.setflag(NEGF, val & 0x8000 != 0);
         val
     }
 
@@ -359,43 +369,43 @@ impl Cpu {
     // No args
 
     fn JNE(&mut self) {
-        if (self.regs.arr[2] & ZEROF) != 0 {
+        if !self.getflag(ZEROF) {
            self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
     fn JEQ(&mut self) {
-        if (self.regs.arr[2] & ZEROF) == 0 {
+        if self.getflag(ZEROF) {
            self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
     fn JNC(&mut self) {
-        if (self.regs.arr[2] & CARRYF) == 0 {
+        if !self.getflag(CARRYF) {
            self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
     fn JC(&mut self) {
-        if (self.regs.arr[2] & CARRYF) != 0 {
+        if !self.getflag(CARRYF) {
            self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
     fn JN(&mut self) {
-        if (self.regs.arr[2] & NEGF) != 0 {
+        if self.getflag(NEGF) {
            self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
     fn JGE(&mut self) {
-        if (self.regs.arr[2] & NEGF) == ((self.regs.arr[2] & OVERF) >> 6)  {
+        if self.getflag(NEGF) == self.getflag(OVERF) {
            self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
     fn JL(&mut self) {
-        if (self.regs.arr[2] & NEGF) != ((self.regs.arr[2] & OVERF) >> 6)  {
+        if !(self.getflag(NEGF) == self.getflag(OVERF)) {
            self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
@@ -485,17 +495,8 @@ impl Cpu {
 }
 
 #[test]
-fn optypes_test() {
-    let nums: [u16, ..3] = [0x4031, 0x2407, 0x12b0]; //mov, jz, call
-    let opfmtres = [TwoArg, NoArg, OneArg];
-    for (&num, &opfrm) in nums.iter().zip(opfmtres.iter()) {
-        let form = get_optype(num);
-        assert_eq!(form as int, opfrm as int);
-    }
-}
-
-#[test]
-fn twoarg_split_test() {
+// Add a bunch of tests here. Important to get right.
+fn parse_tests() {
     let instrs: [u16,..1] =       [0x4031]; //MOV
     let optype: [OpType,..1]=     [TwoArg];
     let opcodes: [u8,..1]=        [0b0100];
@@ -505,7 +506,7 @@ fn twoarg_split_test() {
     let Ass: [AddressingMode,..1] = [Direct];
     let destregs: [u8,..1] =      [0b0001];
     for (ix, &code) in instrs.iter().enumerate() {
-        let inst = twoarg_split(code);
+        let inst = parse_inst(code);
         assert_eq!(inst.opcode, opcodes[ix]);
         assert_eq!(inst.optype as u8, optype[ix] as u8);
         assert_eq!(inst.sourcereg, sourceregs[ix]);
@@ -519,5 +520,4 @@ fn twoarg_split_test() {
 #[test]
 fn cpu_test() {
     let mut cpu = Cpu::new();
-    println!("{:?}", cpu)
 }
