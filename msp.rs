@@ -49,9 +49,11 @@ trait Mem {
 trait MemUtil {
     fn loadw(&self, addr: u16) -> u16;
     fn storew(&mut self, addr: u16, val: u16);
+    fn load(&self, addr: u16, byteflag: bool) -> u16;
+    fn store(&mut self, addr: u16, val: u16, byteflag: bool);
 }
 
-impl<M:Mem> MemUtil for M {
+impl<M: Mem> MemUtil for M {
     fn loadw(&self, addr: u16) -> u16 {
         self.loadb(addr) as u16 | (self.loadb(addr +1) as u16 << 8)
     }
@@ -69,7 +71,7 @@ impl<M:Mem> MemUtil for M {
         }
     }
 
-    fn store(&self, addr: u16, val: u16, byteflag: bool) -> u16 {
+    fn store(&mut self, addr: u16, val: u16, byteflag: bool) {
         if byteflag {
             self.storeb(addr, val as u8)
         } else {
@@ -88,8 +90,20 @@ struct Ram {
     arr: [u8, ..0x10000],
 }
 
+impl Ram {
+    fn new() -> Ram {
+        Ram { arr: [0, ..0x10000] }
+    }
+}
+
 struct Regs {
     arr: [u16, ..15]
+}
+
+impl Regs {
+    fn new() -> Regs {
+        Regs { arr: [0, ..15] }
+    }
 }
 
 impl Mem for Ram {
@@ -122,6 +136,22 @@ struct Instruction {
     destreg: u8
 }
 
+impl Instruction {
+    fn new() -> Instruction {
+        Instruction {
+            code: 0,
+            optype: NoArg,
+            opcode: 0,
+            offset: 0,
+            bw: false,
+            Ad: Direct,
+            As: Direct,
+            sourcereg: 0,
+            destreg: 0
+        }
+    }
+}
+
 enum OpType {
     NoArg,
     OneArg,
@@ -135,14 +165,24 @@ enum AddressingMode {
     Indexed
 }
 
-fn get_optype(inst: u16) -> OpType {
-    match inst >> 12 {
+fn get_optype(code: u16) -> OpType {
+    match code >> 12 {
         0 => NoArg,
         1 => OneArg,
         _ => TwoArg
+    }
 }
 
 //splitters
+
+fn parse_inst(code: u16) -> Instruction {
+    let optype = get_optype(code);
+    match optype {
+        NoArg => noarg_split(code),
+        OneArg => onearg_split(code),
+        TwoArg => twoarg_split(code)
+    }
+}
 
 fn twoarg_split(inst: u16) -> Instruction {
     let destreg = (inst & 0xf) as u8;
@@ -159,7 +199,8 @@ fn twoarg_split(inst: u16) -> Instruction {
         sourcereg: sourcereg,
         As : As,
         Ad : Ad,
-        bw : bw
+        bw : bw,
+        offset : 0
     }
 }
 
@@ -174,7 +215,10 @@ fn onearg_split(inst: u16) -> Instruction {
         opcode: opcode, 
         destreg: destreg,
         Ad : Ad,
-        bw : bw
+        bw : bw,
+        sourcereg : 0,
+        offset : 0,
+        As : Direct,
     }
 }
 
@@ -185,16 +229,22 @@ fn noarg_split(inst: u16) -> Instruction {
         code: inst,
         optype: NoArg,
         opcode: opcode,
-        offset: offset
+        offset: offset,
+        bw : false,
+        Ad : Indirect,
+        As: Indirect,
+        sourcereg : 0,
+        destreg : 0,
     }
 }
 
-fn getAddressingMode(As: u8) -> Mode {
+fn getAddressingMode(As: u8) -> AddressingMode {
     match As {
         0b00 => Direct,
         0b10 => Indirect,
         0b11 => IndirectInc,
-        0b01 => Indexed
+        0b01 => Indexed,
+        _ => fail!("Invalid addressing mode")
     }
 }
 
@@ -204,12 +254,15 @@ impl Cpu {
         let regval = self.regs.load(regadr);
         match mode {
             Direct => regval,
-            Indirect => self.ram.load(regval),
+            Indirect => self.ram.load(regval, self.inst.bw),
             IndirectInc => {
                 self.regs.store(regadr, regval + 1);
-                self.ram.load(regval),
+                self.ram.load(regval, self.inst.bw)
             }
-            Indexed => self.ram.load(regval + self.next_inst())
+            Indexed => {
+                let offset = self.next_inst();
+                self.ram.load(regval + offset, self.inst.bw)
+            }
         }
     }
 
@@ -217,44 +270,28 @@ impl Cpu {
         let regval = self.regs.load(regadr);
         match mode {
             Direct => self.regs.store(regadr, val),
-            Indirect => self.ram.store(regval, val),
+            Indirect => self.ram.store(regval, val, self.inst.bw),
             IndirectInc => {
                 self.regs.store(regadr, regval + 1);
-                self.ram.store(regval, val),
+                self.ram.store(regval, val, self.inst.bw)
             }
-            Indexed => self.ram.store(regval + self.next_inst(), val)
-        }
-    }
-
-    fn store(&mut self) -> u16 {
-        let src = match self.inst.optype {
-            OneArg => self.inst.destreg,
-            TwoArg => self.inst.sourcereg,
-            _ => fail!("Invalid load")
-        }
-        let regval = self.regs.load(src)
-        match self.inst.mode {
-            Direct => regval,
-            Indirect => self.ram.load(regval),
-            IndirectInc => {
-                self.regs.store(src, regval + 1);
-                self.ram.load(regval),
+            Indexed => {
+                let offset = self.next_inst();
+                self.ram.store(regval + offset, val, self.inst.bw )
             }
-            Indexed => self.ram.load(regval + self.next_inst())
         }
     }
 
     fn caller(&mut self) {
-        match opformat(inst) {
-            NoArg => self.noarg_caller(cpu, inst),
-            OneArg => self.onearg_caller(cpu, inst),
-            TwoArg => self.twoarg_caller(cpu, inst),
+        match self.inst.optype {
+            NoArg => self.noarg_caller(),
+            OneArg => self.onearg_caller(),
+            TwoArg => self.twoarg_caller(),
         }
     }
 
-
     fn noarg_caller(&mut self) {
-        match cpu.inst.opcode {
+        match self.inst.opcode {
             0b000 => self.JNE(),
             0b001 => self.JEQ(),
             0b010 => self.JNC(),
@@ -268,7 +305,7 @@ impl Cpu {
     }
 
     fn onearg_caller(&mut self) {
-        match onearg_split(inst) {
+        match self.inst.opcode {
             0b000 => self.RRC(),
             0b001 => self.SWPB(),
             0b010 => self.RRA(),
@@ -281,7 +318,7 @@ impl Cpu {
     }
 
     fn twoarg_caller(&mut self) {
-        match twoarg_split(inst) {
+        match self.inst.opcode {
             0b0100 => self.MOV(),
             0b0101 => self.ADD(),
             0b0110 => self.ADDC(),
@@ -300,9 +337,9 @@ impl Cpu {
     // utility functions
     fn set_flag(&mut self, flag: u16, on: bool ) {
         if on {
-            self.regs[2] = self.regs[2] | flag
+            self.regs.arr[2] = self.regs.arr[2] | flag
         } else {
-            self.regs[2] = self.regs[2] & !flag
+            self.regs.arr[2] = self.regs.arr[2] & !flag
         }
     }
 
@@ -313,162 +350,169 @@ impl Cpu {
     }
 
     fn next_inst(&mut self) -> u16 {
-        let inst = self.loadw(self.regs[0]);
-        self.regs[0] += 2;
+        let inst = self.ram.loadw(self.regs.arr[0]);
+        self.regs.arr[0] += 2;
         inst
     }
 
     //instructions
     // No args
 
-    fn JNE(&mut self, offset: u16) {
-        if (self.regs[2] & ZEROF) != 0 {
-           self.regs[0] = self.regs[0] + offset
+    fn JNE(&mut self) {
+        if (self.regs.arr[2] & ZEROF) != 0 {
+           self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
-    fn JEQ(&mut self, offset: u16) {
-        if (self.regs[2] & ZEROF) == 0 {
-           self.regs[0] = self.regs[0] + offset
+    fn JEQ(&mut self) {
+        if (self.regs.arr[2] & ZEROF) == 0 {
+           self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
-    fn JNC(&mut self, offset: u16) {
-        if (self.regs[2] & CARRYF) == 0 {
-           self.regs[0] = self.regs[0] + offset
+    fn JNC(&mut self) {
+        if (self.regs.arr[2] & CARRYF) == 0 {
+           self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
-    fn JC(&mut self, offset: u16) {
-        if (self.regs[2] & CARRYF) != 0 {
-           self.regs[0] = self.regs[0] + offset
+    fn JC(&mut self) {
+        if (self.regs.arr[2] & CARRYF) != 0 {
+           self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
-    fn JN(&mut self, offset: u16) {
-        if (self.regs[2] & NEGF) != 0 {
-           self.regs[0] = self.regs[0] + offset
+    fn JN(&mut self) {
+        if (self.regs.arr[2] & NEGF) != 0 {
+           self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
-    fn JGE(&mut self, offset: u16) {
-        if (self.regs[2] & NEGF) == ((self.regs[2] & OVERF) >> 6)  {
-           self.regs[0] = self.regs[0] + offset
+    fn JGE(&mut self) {
+        if (self.regs.arr[2] & NEGF) == ((self.regs.arr[2] & OVERF) >> 6)  {
+           self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
-    fn JL(&mut self, offset: u16) {
-        if (self.regs[2] & NEGF) != ((self.regs[2] & OVERF) >> 6)  {
-           self.regs[0] = self.regs[0] + offset
+    fn JL(&mut self) {
+        if (self.regs.arr[2] & NEGF) != ((self.regs.arr[2] & OVERF) >> 6)  {
+           self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
         }
     }
 
-    fn JMP(&mut self, offset: u16) {
-       self.regs[0] = self.regs[0] + offset
+    fn JMP(&mut self) {
+       self.regs.arr[0] = self.regs.arr[0] + self.inst.offset
     }
 
     // One arg
 
-    fn RRC(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn RRC(&mut self) {
     }
 
-    fn SWPB(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn SWPB(&mut self) {
     }
 
-    fn RRA(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn RRA(&mut self) {
     }
 
-    fn SXT(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn SXT(&mut self) {
     }
 
-    fn PUSH(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn PUSH(&mut self) {
     }
 
-    fn CALL(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn CALL(&mut self) {
     }
 
-    fn RET(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn RET(&mut self) {
     }
 
-    fn RETI(&mut self, bw: bool, Ad: u8, dest: u8) {
+    fn RETI(&mut self) {
     }
 
     // Two arg
 
-    fn MOV(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn MOV(&mut self) {
     }
 
-    fn ADD(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn ADD(&mut self) {
     }
 
-    fn ADDC(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn ADDC(&mut self) {
     }
 
-    fn SUBC(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn SUBC(&mut self) {
     }
 
-    fn SUB(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn SUB(&mut self) {
     }
 
-    fn CMP(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn CMP(&mut self) {
     }
 
-    fn DADD(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn DADD(&mut self) {
     }
 
-    fn BIT(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn BIT(&mut self) {
     }
 
-    fn BIC(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn BIC(&mut self) {
     }
 
-    fn BIS(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn BIS(&mut self) {
     }
 
-    fn XOR(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn XOR(&mut self) {
     }
 
-    fn AND(&mut self, src: u8, Ad: bool, bw: bool, As: u8, dest: u8) {
+    fn AND(&mut self) {
     }
 
-    fn step(&mut self) {
-        let instr = self.regs[0];
-        caller(self, instr)
-
+    // step pc forward and return instruction
+    fn step(&mut self) { 
+        let code = self.next_inst();
+        self.inst = parse_inst(code);
+        self.caller()
     }
 
     fn new() -> Cpu { 
-        Cpu {regs: [0, ..15], ram: [0, ..0x10000]}
-    } 
+        Cpu {
+            regs: Regs::new(),
+            ram: Ram::new(),
+            inst: Instruction::new()
+        }
+    }
 }
 
 #[test]
-fn opformat_test() {
-    let nums: [u16,..3] = [0x4031, 0x2407, 0x12b0]; //mov, jz, call
-    let opfmtres: [Opformat,..3] = [TwoArg, NoArg, OneArg];
+fn optypes_test() {
+    let nums: [u16, ..3] = [0x4031, 0x2407, 0x12b0]; //mov, jz, call
+    let opfmtres = [TwoArg, NoArg, OneArg];
     for (&num, &opfrm) in nums.iter().zip(opfmtres.iter()) {
-        let form = opformat(num);
+        let form = get_optype(num);
         assert_eq!(form as int, opfrm as int);
     }
 }
 
 #[test]
 fn twoarg_split_test() {
-    let instrs: [u16,..1] =    [0x4031]; //MOV
-    let opcodes: [u8,..1]=     [0b0100];
-    let sourceregs: [u8,..1]=  [0b0000];
-    let Ads: [bool,..1] =      [false];
-    let bws: [bool,..1] =      [false];
-    let Ass: [u8,..1] =        [0b11];
-    let destregs: [u8,..1] =   [0b0001];
-    for (ix, &inst) in instrs.iter().enumerate() {
-        let (opcode, sourcereg, Ad, bw, As, destreg) = twoarg_split(inst);
-        assert_eq!(opcode, opcodes[ix]);
-        assert_eq!(sourcereg, sourceregs[ix]);
-        assert_eq!(Ad, Ads[ix]);
-        assert_eq!(bw, bws[ix]);
-        assert_eq!(As, Ass[ix]);
-        assert_eq!(destreg, destregs[ix]);
+    let instrs: [u16,..1] =       [0x4031]; //MOV
+    let optype: [OpType,..1]=     [TwoArg];
+    let opcodes: [u8,..1]=        [0b0100];
+    let sourceregs: [u8,..1]=     [0b0000];
+    let Ads: [AddressingMode,..1] = [Direct];
+    let bws: [bool,..1] =         [false];
+    let Ass: [AddressingMode,..1] = [Direct];
+    let destregs: [u8,..1] =      [0b0001];
+    for (ix, &code) in instrs.iter().enumerate() {
+        let inst = twoarg_split(code);
+        assert_eq!(inst.opcode, opcodes[ix]);
+        assert_eq!(inst.optype as u8, optype[ix] as u8);
+        assert_eq!(inst.sourcereg, sourceregs[ix]);
+        assert_eq!(inst.Ad as u8, Ads[ix] as u8);
+        assert_eq!(inst.bw, bws[ix]);
+        assert_eq!(inst.As as u8, Ass[ix] as u8);
+        assert_eq!(inst.destreg, destregs[ix]);
     }
 }
 
@@ -477,4 +521,3 @@ fn cpu_test() {
     let mut cpu = Cpu::new();
     println!("{:?}", cpu)
 }
-
