@@ -100,11 +100,6 @@ struct Regs {
     arr: [u16, ..15]
 }
 
-impl Regs {
-    fn new() -> Regs {
-        Regs { arr: [0, ..15] }
-    }
-}
 
 impl Mem for Ram {
     fn loadb(&self, addr: u16) -> u8 {
@@ -116,11 +111,14 @@ impl Mem for Ram {
 }
 
 impl Regs {
-    fn load(&self, addr: u16) -> u16 {
+    fn load(&self, addr: u8) -> u16 {
         self.arr[addr]
     }
-    fn store(&mut self, addr: u16, val: u16) {
+    fn store(&mut self, addr: u8, val: u16) {
         self.arr[addr] = val
+    }
+    fn new() -> Regs {
+        Regs { arr: [0, ..15] }
     }
 }
 
@@ -253,7 +251,7 @@ impl Cpu {
 
     // memory/register interface
 
-    fn load(&mut self, regadr: u16, mode: AddressingMode) -> u16 {
+    fn load(&mut self, regadr: u8, mode: AddressingMode) -> u16 {
         let regval = self.regs.load(regadr);
         match mode {
             Direct => regval,
@@ -269,7 +267,7 @@ impl Cpu {
         }
     }
 
-    fn store(&mut self, regadr: u16, mode: AddressingMode, val: u16) {
+    fn _store(&mut self, regadr: u8, mode: AddressingMode, val: u16) {
         let regval = self.regs.load(regadr);
         match mode {
             Direct => self.regs.store(regadr, val),
@@ -285,57 +283,52 @@ impl Cpu {
         }
     }
 
-    //caller functions
+    fn store(&mut self, val: u16) {
+        self._store(self.inst.destreg, self.inst.Ad, val)
+    }
+
+    fn set_and_store(&mut self, val: u16) {
+        self.setflags(val);
+        self.store(val);
+    }
 
     fn caller(&mut self) {
         match self.inst.optype {
-            NoArg => self.noarg_caller(),
-            OneArg => self.onearg_caller(),
-            TwoArg => self.twoarg_caller(),
-        }
-    }
-
-    fn noarg_caller(&mut self) {
-        match self.inst.opcode {
-            0b000 => self.JNE(),
-            0b001 => self.JEQ(),
-            0b010 => self.JNC(),
-            0b011 => self.JC(),
-            0b100 => self.JN(),
-            0b101 => self.JGE(),
-            0b110 => self.JL(),
-            0b111 => self.JMP(),
-            _ => fail!("Illegal match in noarg")
-        }
-    }
-
-    fn onearg_caller(&mut self) {
-        match self.inst.opcode {
-            0b000 => self.RRC(),
-            0b001 => self.SWPB(),
-            0b010 => self.RRA(),
-            0b011 => self.SXT(),
-            0b100 => self.PUSH(),
-            0b101 => self.CALL(),
-            0b110 => self.RETI(),
-            _ => fail!("Illegal match in onearg")
-        }
-    }
-
-    fn twoarg_caller(&mut self) {
-        match self.inst.opcode {
-            0b0100 => self.MOV(),
-            0b0101 => self.ADD(),
-            0b0110 => self.ADDC(),
-            0b0111 => self.SUBC(),
-            0b1001 => self.SUB(),
-            0b1010 => self.DADD(),
-            0b1011 => self.BIT(),
-            0b1100 => self.BIC(),
-            0b1101 => self.BIS(),
-            0b1110 => self.XOR(),
-            0b1111 => self.AND(),
-            _ => fail!("Illegal match in twoarg")
+            NoArg => match self.inst.opcode {
+                0b000 => self.JNE(),
+                0b001 => self.JEQ(),
+                0b010 => self.JNC(),
+                0b011 => self.JC(),
+                0b100 => self.JN(),
+                0b101 => self.JGE(),
+                0b110 => self.JL(),
+                0b111 => self.JMP(),
+                _ => fail!("Illegal opcode")
+                },
+            OneArg => match self.inst.opcode {
+                0b000 => self.RRC(),
+                0b001 => self.SWPB(),
+                0b010 => self.RRA(),
+                0b011 => self.SXT(),
+                0b100 => self.PUSH(),
+                0b101 => self.CALL(),
+                0b110 => self.RETI(),
+                _ => fail!("Illegal opcode")
+                },
+            TwoArg => match self.inst.opcode {
+                0b0100 => self.MOV(),
+                0b0101 => self.ADD(),
+                0b0110 => self.ADDC(),
+                0b0111 => self.SUBC(),
+                0b1001 => self.SUB(),
+                0b1010 => self.DADD(),
+                0b1011 => self.BIT(),
+                0b1100 => self.BIC(),
+                0b1101 => self.BIS(),
+                0b1110 => self.XOR(),
+                0b1111 => self.AND(),
+                _ => fail!("Illegal opcode")
+            }
         }
     }
 
@@ -349,7 +342,7 @@ impl Cpu {
         }
     }
 
-    fn setflag(&mut self, flag: u16, on: bool ) {
+    fn set_flag(&mut self, flag: u16, on: bool ) {
         if on {
             self.regs.arr[2] = self.regs.arr[2] | flag
         } else {
@@ -357,10 +350,9 @@ impl Cpu {
         }
     }
 
-    fn set_zn(&mut self, val: u16) -> u16 {
-        self.setflag(ZEROF, val == 0);
-        self.setflag(NEGF, val & 0x8000 != 0);
-        val
+    fn setflags(&mut self, val: u16) {
+        self.set_flag(ZEROF, val == 0);
+        self.set_flag(NEGF, val & 0x8000 != 0);
     }
 
     // load instruction from ram and increment pc
@@ -381,6 +373,7 @@ impl Cpu {
     //Instructions
 
     // No args
+    // TODO: These calls should use the API
 
     fn JNE(&mut self) {
         if !self.getflag(ZEROF) {
@@ -431,18 +424,42 @@ impl Cpu {
     // One arg
 
     fn RRC(&mut self) {
+        //think this is wrong
+        let mut val = self.load(self.inst.destreg, self.inst.Ad);
+        let C = self.getflag(CARRYF);
+        val >>= 1;
+        if C { val |= 0x8000 }
+        self.set_and_store(val)
     }
 
     fn SWPB(&mut self) {
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let topbyte = val >> 8;
+        let botbyte = val << 8;
+        self.store(topbyte | botbyte)
     }
 
     fn RRA(&mut self) {
+        // TODO: Implement
+        fail!("Not implemented")
     }
 
     fn SXT(&mut self) {
+        let mut val = self.load(self.inst.destreg, self.inst.Ad);
+        if (val & 0x0080) != 0 {
+            //negative
+            val |= 0xff00
+        } else {
+            //positive
+            val &= 0x00ff
+        }
+        self.store(val)
     }
 
     fn PUSH(&mut self) {
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let sp = self.load(self.inst.destreg, self.inst.Ad);
+        self._store(2u8, Indirect, val)
     }
 
     fn CALL(&mut self) {
@@ -457,39 +474,82 @@ impl Cpu {
     // Two arg
 
     fn MOV(&mut self) {
+        let val = self.load(self.inst.sourcereg, self.inst.As);
+        self.store(val)
     }
 
     fn ADD(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.set_and_store(val + inc)
     }
 
     fn ADDC(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let C = self.getflag(CARRYF);
+        if C {
+            self.set_and_store(val + inc + 1)
+        } else {
+            self.set_and_store(val + inc)
+        }
     }
 
     fn SUBC(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let C = self.getflag(CARRYF);
+        if C {
+            self.set_and_store(val - inc + 1)
+        } else {
+            self.set_and_store(val - inc)
+        }
     }
 
     fn SUB(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.set_and_store(val - inc)
     }
 
     fn CMP(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.setflags(val - inc);
     }
 
     fn DADD(&mut self) {
+        fail!("Not implemented")
     }
 
     fn BIT(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.setflags(inc & val);
     }
 
     fn BIC(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.store(val & !inc)
     }
 
     fn BIS(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.store(val | inc)
     }
 
     fn XOR(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.set_and_store(val ^ inc)
     }
 
     fn AND(&mut self) {
+        let inc = self.load(self.inst.sourcereg, self.inst.As);
+        let val = self.load(self.inst.destreg, self.inst.Ad);
+        self.set_and_store(val & inc)
     }
 
     fn new() -> Cpu { 
@@ -504,14 +564,14 @@ impl Cpu {
 #[test]
 // Add a bunch of tests here. Important to get right.
 fn parse_tests() {
-    let instrs: [u16,..1] =       [0x4031]; //MOV
-    let optype: [OpType,..1]=     [TwoArg];
-    let opcodes: [u8,..1]=        [0b0100];
-    let sourceregs: [u8,..1]=     [0b0000];
+    let instrs: [u16,..1] =         [0x4031]; //MOV
+    let optype: [OpType,..1]=       [TwoArg];
+    let opcodes: [u8,..1]=          [0b0100];
+    let sourceregs: [u8,..1]=       [0b0000];
     let Ads: [AddressingMode,..1] = [Direct];
-    let bws: [bool,..1] =         [false];
+    let bws: [bool,..1] =           [false];
     let Ass: [AddressingMode,..1] = [Direct];
-    let destregs: [u8,..1] =      [0b0001];
+    let destregs: [u8,..1] =        [0b0001];
     for (ix, &code) in instrs.iter().enumerate() {
         let inst = parse_inst(code);
         assert_eq!(inst.opcode, opcodes[ix]);
