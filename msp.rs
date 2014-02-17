@@ -34,6 +34,8 @@
 
 //Flags
 
+use std::fmt;
+
 static CARRYF : u16 = 1;
 static ZEROF : u16 = 1 << 1;
 static NEGF : u16 = 1 << 2;
@@ -80,11 +82,18 @@ impl<M: Mem> MemUtil for M {
     }
 }
 
-struct Cpu {
+pub struct Cpu {
     regs: Regs,
     ram: Ram,
     inst: Instruction
 }
+
+impl fmt::Show for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "{}\n\n{}\n\n{}", self.ram, self.regs, self.inst)
+    }
+}
+
 
 struct Ram {
     arr: [u8, ..0x10000],
@@ -96,10 +105,35 @@ impl Ram {
     }
 }
 
-struct Regs {
-    arr: [u16, ..15]
+impl fmt::Show for Ram {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "|-----------------------RAM--------------------|\n");
+        let mut wasvalid = false;
+        for i in range(0, self.arr.len()/16) {
+            let v = self.arr.slice(16*i, 16*i + 16);
+            match v {
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] => {
+                    if wasvalid {
+                        write!(f.buf, "              ****                         \n");
+                        wasvalid = false
+                    }
+                },
+                _ => {
+                    write!(f.buf,
+                    "|{:04x} : {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x}|\n",
+                    i*16, v[0], v[1], v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11],v[12],v[13],v[14],v[15]);
+                    wasvalid = true;
+                }
+            }
+        }
+        write!(f.buf, "|----------------------------------------------|")
+
+    }
 }
 
+struct Regs {
+    arr: [u16, ..16]
+}
 
 impl Mem for Ram {
     fn loadb(&self, addr: u16) -> u8 {
@@ -107,6 +141,21 @@ impl Mem for Ram {
     }
     fn storeb(&mut self, addr: u16, val: u8) {
         self.arr[addr] = val
+    }
+}
+
+impl fmt::Show for Regs {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "|-------------Registers-------------|\n");
+        write!(f.buf, "|PC  {:04x} SP  {:04x} SR  {:04x} CG  {:04x}|\n",
+            self.arr[0], self.arr[1], self.arr[2], self.arr[3]);
+        write!(f.buf, "|R04 {:04x} R05 {:04x} R06 {:04x} R07 {:04x}|\n",
+            self.arr[4], self.arr[5], self.arr[6], self.arr[7]);
+        write!(f.buf, "|R08 {:04x} R09 {:04x} R10 {:04x} R11 {:04x}|\n",
+            self.arr[8], self.arr[9], self.arr[10], self.arr[11]);
+        write!(f.buf, "|R12 {:04x} R13 {:04x} R14 {:04x} R15 {:04x}|\n",
+            self.arr[12], self.arr[13], self.arr[14], self.arr[15]);
+        write!(f.buf, "|-----------------------------------|")
     }
 }
 
@@ -118,7 +167,7 @@ impl Regs {
         self.arr[addr] = val
     }
     fn new() -> Regs {
-        Regs { arr: [0, ..15] }
+        Regs { arr: [0, ..16] }
     }
 }
 
@@ -150,6 +199,13 @@ impl Instruction {
     }
 }
 
+impl fmt::Show for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "<Instr: {:t}, {:?}, {:t}>",
+        self.code, self.optype, self.opcode)
+    }
+}
+
 enum OpType {
     NoArg,
     OneArg,
@@ -158,13 +214,12 @@ enum OpType {
 
 enum AddressingMode {
     Direct,
+    Indexed,
     Indirect,
-    IndirectInc,
-    Indexed
+    IndirectInc
 }
 
 fn get_optype(code: u16) -> OpType {
-    println!("{:016t}, {:u}",code, code >> 12)
     match code >> 12 {
         0 => NoArg,
         1 => OneArg,
@@ -240,9 +295,9 @@ fn noarg_split(inst: u16) -> Instruction {
 fn getAddressingMode(As: u8) -> AddressingMode {
     match As {
         0b00 => Direct,
+        0b01 => Indexed,
         0b10 => Indirect,
         0b11 => IndirectInc,
-        0b01 => Indexed,
         _ => fail!("Invalid addressing mode")
     }
 }
@@ -369,11 +424,22 @@ impl Cpu {
         self.caller()
     }
 
+    fn new() -> Cpu { 
+        Cpu {
+            regs: Regs::new(),
+            ram: Ram::new(),
+            inst: Instruction::new()
+        }
+    }
+}
+
 
     //Instructions
 
     // No args
     // TODO: These calls should use the API
+
+impl Cpu {
 
     fn JNE(&mut self) {
         if !self.getflag(ZEROF) {
@@ -424,7 +490,7 @@ impl Cpu {
     // One arg
 
     fn RRC(&mut self) {
-        //think this is wrong
+        //XXX think this is wrong
         let mut val = self.load(self.inst.destreg, self.inst.Ad);
         let C = self.getflag(CARRYF);
         val >>= 1;
@@ -458,17 +524,21 @@ impl Cpu {
 
     fn PUSH(&mut self) {
         let val = self.load(self.inst.destreg, self.inst.Ad);
-        let sp = self.load(self.inst.destreg, self.inst.Ad);
-        self._store(2u8, Indirect, val)
+        let spval = self.load(1u8, Direct);
+        self._store(2u8, Indirect, val);        //push 
+        self._store(2u8, Direct, spval - 2);    //decrement sp
     }
 
     fn CALL(&mut self) {
-    }
-
-    fn RET(&mut self) {
+        self.inst.destreg = 0;
+        self.inst.Ad = Direct;
+        self.PUSH(); // push pc to stack 
+        self.inst.offset = self.next_inst();
+        self.JMP() // branch
     }
 
     fn RETI(&mut self) {
+        fail!("Not implemented")
     }
 
     // Two arg
@@ -552,13 +622,6 @@ impl Cpu {
         self.set_and_store(val & inc)
     }
 
-    fn new() -> Cpu { 
-        Cpu {
-            regs: Regs::new(),
-            ram: Ram::new(),
-            inst: Instruction::new()
-        }
-    }
 }
 
 #[test]
@@ -570,10 +633,11 @@ fn parse_tests() {
     let sourceregs: [u8,..1]=       [0b0000];
     let Ads: [AddressingMode,..1] = [Direct];
     let bws: [bool,..1] =           [false];
-    let Ass: [AddressingMode,..1] = [Direct];
+    let Ass: [AddressingMode,..1] = [IndirectInc];
     let destregs: [u8,..1] =        [0b0001];
     for (ix, &code) in instrs.iter().enumerate() {
         let inst = parse_inst(code);
+        println!("{}", inst);
         assert_eq!(inst.opcode, opcodes[ix]);
         assert_eq!(inst.optype as u8, optype[ix] as u8);
         assert_eq!(inst.sourcereg, sourceregs[ix]);
@@ -587,4 +651,8 @@ fn parse_tests() {
 #[test]
 fn cpu_test() {
     let mut cpu = Cpu::new();
+    cpu.inst = parse_inst(0x4031);
+    cpu.ram.arr[0] = 1;
+    cpu.ram.arr[0xffe0] = 1;
+    println!("{}", cpu);
 }
