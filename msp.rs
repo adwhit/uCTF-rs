@@ -67,7 +67,9 @@ struct Instruction {
     Ad: AddressingMode,
     As: AddressingMode,
     sourcereg: u8,
-    destreg: u8
+    destreg: u8,
+    sourcearg: u16,
+    destarg: u16
 }
 
 impl Instruction {
@@ -81,22 +83,74 @@ impl Instruction {
             Ad: Direct,
             As: Direct,
             sourcereg: 0,
-            destreg: 0
+            destreg: 0,
+            sourcearg: 0,
+            destarg: 0
         }
     }
-    fn print() {
 
+    fn namer(&self) -> ~str {
+        match self.optype {
+            NoArg => match self.opcode {
+                0b000 => ~"JNE",
+                0b001 => ~"JEQ",
+                0b010 => ~"JNC",
+                0b011 => ~"JC",
+                0b100 => ~"JN",
+                0b101 => ~"JGE",
+                0b110 => ~"JL",
+                0b111 => ~"JMP",
+                _ => fail!("Illegal opcode")
+                },
+            OneArg => match self.opcode {
+                0b000 => ~"RRC",
+                0b001 => ~"SWPB",
+                0b010 => ~"RRA",
+                0b011 => ~"SXT",
+                0b100 => ~"PUSH",
+                0b101 => ~"CALL",
+                0b110 => ~"RETI",
+                _ => fail!("Illegal opcode")
+                },
+            TwoArg => match self.opcode {
+                0b0100 => ~"MOV",
+                0b0101 => ~"ADD",
+                0b0110 => ~"ADDC",
+                0b0111 => ~"SUBC",
+                0b1001 => ~"SUB",
+                0b1010 => ~"DADD",
+                0b1011 => ~"BIT",
+                0b1100 => ~"BIC",
+                0b1101 => ~"BIS",
+                0b1110 => ~"XOR",
+                0b1111 => ~"AND",
+                _ => fail!("Illegal opcode")
+            }
+        }
+    }
+
+    fn to_string(&self) -> ~str {
+        let op = self.namer();
+        let (a1, a2) = match self.optype {
+            NoArg => (format!("{:u}", self.offset), ~""),
+            OneArg => (format!("{:u}", self.destarg), ~""),
+            TwoArg => (format!("{:u}", self.sourcearg), format!("{:u}", self.destarg))
+        };
+        format!("{:s} {:s} {:s}", op, a1, a2)
+    }
 }
 
 impl fmt::Show for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f.buf, 
-"|----------------------- Instruction: {:016t} --------------------|
-| OpType:{:06?} | Opcode:{:04t}          | DestReg:{:02u} | DestMode:{:11?} |
-| SourceReg:{:02u}  | SourceMode:{:?} | B/W:{:05b}  | Offset:{:04x}          |
-|--------------------------------------------------------------------------|",
-               self.code,self.optype, self.opcode, self.destreg,self.Ad,
-               self.sourcereg, self.As, self.bw, self.offset)
+"|---------- Instruction: {:016t} ----------------|
+| OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}  | 
+| DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x} |
+| SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x} |
+|---------------------------------------------------------|",
+               self.code,self.optype, self.opcode, self.bw, self.offset,
+               self.destreg, self.Ad,self.destarg,
+               self.sourcereg, self.As, self.sourcearg)
     }
 }
 
@@ -139,49 +193,42 @@ fn parse_inst(code: u16) -> Instruction {
     }
 }
 
-fn twoarg_split(inst: u16) -> Instruction {
+
+
+fn twoarg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
+    inst.code = code;
     inst.optype = TwoArg;
-    inst.destreg = (inst & 0xf) as u8;
-    inst.sourcereg = ((inst & 0xf00) >> 8) as u8;
-    inst.bw = ((inst & 0x40) >> 6) != 0;
-    inst.As = get_addressing_mode(((inst & 0x30) >> 4) as u8, sourcereg);
-    inst.Ad = get_addressing_mode(((inst & 0x80) >> 7) as u8, destreg);
-    inst.opcode = ((inst & 0xf000) >> 12) as u8;
-    inst.arg1 =  match As {
-        Indexed => cpu.next_inst(),
-        _ => 0
-    }
-    inst.arg2 = match Ad {
-        Indexed => cpu.next_inst(),
-        _ => 0
-    }
+    inst.destreg = (code & 0xf) as u8;
+    inst.sourcereg = ((code & 0xf00) >> 8) as u8;
+    inst.bw = ((code & 0x40) >> 6) != 0;
+    inst.As = get_addressing_mode(((code & 0x30) >> 4) as u8, inst.sourcereg);
+    inst.Ad = get_addressing_mode(((code & 0x80) >> 7) as u8, inst.destreg);
+    inst.opcode = ((code & 0xf000) >> 12) as u8;
     inst
 }
 
-fn onearg_split(inst: u16) -> Instruction {
+fn onearg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
+    inst.code = code;
     inst.optype = OneArg;
-    inst.destreg = (inst & 0xf) as u8;
-    inst.Ad = get_addressing_mode(((inst & 0x30) >> 4) as u8, destreg);
-    inst.bw = ((inst & 0x40) >> 6) != 0;
-    inst.opcode = ((inst & 0x380) >> 7) as u8;
-    inst.arg1 =  match As {
-        Indexed => cpu.next_inst(),
-        _ => 0
-    }
+    inst.destreg = (code & 0xf) as u8;
+    inst.Ad = get_addressing_mode(((code & 0x30) >> 4) as u8, inst.destreg);
+    inst.bw = ((code & 0x40) >> 6) != 0;
+    inst.opcode = ((code & 0x380) >> 7) as u8;
     inst
 }
 
-fn noarg_split(inst: u16) -> Instruction {
+fn noarg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
+    inst.code = code;
     inst.optype = NoArg;
-    inst.offset = (inst & 0x3ff);
-    inst.opcode = ((inst & 0x1c00) >> 10) as u8;
+    inst.offset = (code & 0x3ff);
+    inst.opcode = ((code & 0x1c00) >> 10) as u8;
     inst
 }
 
-fn get_addressing_mode(reg: u8, As: u8) -> AddressingMode {
+fn get_addressing_mode(As: u8, reg: u8) -> AddressingMode {
     match reg {
         2 => match As {
             0b00 => Direct,
@@ -211,7 +258,6 @@ fn get_addressing_mode(reg: u8, As: u8) -> AddressingMode {
 impl Cpu {
 
     // memory/register interface
-
     fn load(&mut self, regadr: u8, mode: AddressingMode) -> u16 {
         let regval = self.regs.load(regadr);
         match mode {
@@ -301,47 +347,19 @@ impl Cpu {
         }
     }
 
-    fn namer(&mut self) -> ~str {
-        match self.inst.optype {
-            NoArg => match self.inst.opcode {
-                0b000 => ~"JNE",
-                0b001 => ~"JEQ",
-                0b010 => ~"JNC",
-                0b011 => ~"JC",
-                0b100 => ~"JN",
-                0b101 => ~"JGE",
-                0b110 => ~"JL",
-                0b111 => ~"JMP",
-                _ => fail!("Illegal opcode")
-                },
-            OneArg => match self.inst.opcode {
-                0b000 => ~"RRC",
-                0b001 => ~"SWPB",
-                0b010 => ~"RRA",
-                0b011 => ~"SXT",
-                0b100 => ~"PUSH",
-                0b101 => ~"CALL",
-                0b110 => ~"RETI",
-                _ => fail!("Illegal opcode")
-                },
-            TwoArg => match self.inst.opcode {
-                0b0100 => ~"MOV",
-                0b0101 => ~"ADD",
-                0b0110 => ~"ADDC",
-                0b0111 => ~"SUBC",
-                0b1001 => ~"SUB",
-                0b1010 => ~"DADD",
-                0b1011 => ~"BIT",
-                0b1100 => ~"BIC",
-                0b1101 => ~"BIS",
-                0b1110 => ~"XOR",
-                0b1111 => ~"AND",
-                _ => fail!("Illegal opcode")
-            }
-        }
-    }
 
     // utility functions
+
+    fn get_args(&mut self) {
+        self.inst.sourcearg =  match self.inst.As {
+            Indexed => self.next_inst(),
+            _ => 0
+        };
+        self.inst.destarg = match self.inst.Ad {
+            Indexed => self.next_inst(),
+            _ => 0
+        };
+    }
 
     fn getflag(self, flag: u16) -> bool {
         if (self.regs.arr[2] & flag) == 0 {
@@ -375,6 +393,7 @@ impl Cpu {
     fn step(&mut self) { 
         let code = self.next_inst();
         self.inst = parse_inst(code);
+        self.get_args();
         self.caller()
     }
 
@@ -387,13 +406,13 @@ impl Cpu {
     }
 }
 
+impl Cpu {
 
     //Instructions
 
     // No args
     // TODO: These calls should use the API
 
-impl Cpu {
 
     fn JNE(&mut self) {
         if !self.getflag(ZEROF) {
@@ -591,7 +610,7 @@ fn parse_tests() {
     let destregs: ~[u8] =        ~[0b0001, 0, 11];
     for (ix, &code) in instrs.iter().enumerate() {
         let inst = parse_inst(code);
-        println!("{}", inst);
+        //println!("{}", inst);
         assert_eq!(inst.opcode, opcodes[ix]);
         assert_eq!(inst.optype as u8, optype[ix] as u8);
         assert_eq!(inst.sourcereg, sourceregs[ix]);
@@ -605,8 +624,10 @@ fn parse_tests() {
 #[test]
 fn cpu_test() {
     let mut cpu = Cpu::new();
-    cpu.inst = parse_inst(0x4031);
-    cpu.ram.arr[0] = 1;
-    cpu.ram.arr[0x4000] = 1;
+    cpu.ram.arr[0] = 0x4031;
+    cpu.ram.arr[1] = 0x4400;
     println!("{}", cpu);
+    cpu.step();
+    println!("{}", cpu);
+    println!("{}", cpu.inst.to_string());
 }
