@@ -3,5 +3,5 @@ use msp::Cpu;
 mod msp;
 
 fn main() {
-    Cpu
+    Cpu::new();
 }

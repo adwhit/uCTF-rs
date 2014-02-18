@@ -34,7 +34,10 @@
 
 //Flags
 
+use mem::{Mem, MemUtil, Ram, Regs};
 use std::fmt;
+
+mod mem;
 
 static CARRYF : u16 = 1;
 static ZEROF : u16 = 1 << 1;
@@ -42,45 +45,6 @@ static NEGF : u16 = 1 << 2;
 static OVERF : u16 = 1 << 8;
 
 // Memory manipulation functions 
-
-trait Mem {
-    fn loadb(&self, addr: u16) -> u8;
-    fn storeb(&mut self, addr: u16, val: u8);
-}
-
-trait MemUtil {
-    fn loadw(&self, addr: u16) -> u16;
-    fn storew(&mut self, addr: u16, val: u16);
-    fn load(&self, addr: u16, byteflag: bool) -> u16;
-    fn store(&mut self, addr: u16, val: u16, byteflag: bool);
-}
-
-impl<M: Mem> MemUtil for M {
-    fn loadw(&self, addr: u16) -> u16 {
-        self.loadb(addr) as u16 | (self.loadb(addr +1) as u16 << 8)
-    }
-
-    fn storew(&mut self, addr: u16, val: u16) {
-        self.storeb(addr, (val & 0xff) as u8);
-        self.storeb(addr + 1, (val >> 8) as u8);
-    }
-
-    fn load(&self, addr: u16, byteflag: bool) -> u16 {
-        if byteflag {
-            self.loadb(addr) as u16
-        } else {
-            self.loadw(addr) as u16
-        }
-    }
-
-    fn store(&mut self, addr: u16, val: u16, byteflag: bool) {
-        if byteflag {
-            self.storeb(addr, val as u8)
-        } else {
-            self.storew(addr, val)
-        }
-    }
-}
 
 pub struct Cpu {
     regs: Regs,
@@ -91,83 +55,6 @@ pub struct Cpu {
 impl fmt::Show for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f.buf, "{}\n\n{}\n\n{}", self.ram, self.regs, self.inst)
-    }
-}
-
-
-struct Ram {
-    arr: [u8, ..0x10000],
-}
-
-impl Ram {
-    fn new() -> Ram {
-        Ram { arr: [0, ..0x10000] }
-    }
-}
-
-impl fmt::Show for Ram {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "|-----------------------RAM--------------------|\n");
-        let mut wasvalid = false;
-        for i in range(0, self.arr.len()/16) {
-            let v = self.arr.slice(16*i, 16*i + 16);
-            match v {
-                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] => {
-                    if wasvalid {
-                        write!(f.buf, "              ****                         \n");
-                        wasvalid = false
-                    }
-                },
-                _ => {
-                    write!(f.buf,
-                    "|{:04x} : {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x} {:02x}{:02x}|\n",
-                    i*16, v[0], v[1], v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11],v[12],v[13],v[14],v[15]);
-                    wasvalid = true;
-                }
-            }
-        }
-        write!(f.buf, "|----------------------------------------------|")
-
-    }
-}
-
-struct Regs {
-    arr: [u16, ..16]
-}
-
-impl Mem for Ram {
-    fn loadb(&self, addr: u16) -> u8 {
-        self.arr[addr]
-    }
-    fn storeb(&mut self, addr: u16, val: u8) {
-        self.arr[addr] = val
-    }
-}
-
-impl fmt::Show for Regs {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "|-------------Registers-------------|\n");
-        write!(f.buf, "|PC  {:04x} SP  {:04x} SR  {:04x} CG  {:04x}|\n",
-            self.arr[0], self.arr[1], self.arr[2], self.arr[3]);
-        write!(f.buf, "|R04 {:04x} R05 {:04x} R06 {:04x} R07 {:04x}|\n",
-            self.arr[4], self.arr[5], self.arr[6], self.arr[7]);
-        write!(f.buf, "|R08 {:04x} R09 {:04x} R10 {:04x} R11 {:04x}|\n",
-            self.arr[8], self.arr[9], self.arr[10], self.arr[11]);
-        write!(f.buf, "|R12 {:04x} R13 {:04x} R14 {:04x} R15 {:04x}|\n",
-            self.arr[12], self.arr[13], self.arr[14], self.arr[15]);
-        write!(f.buf, "|-----------------------------------|")
-    }
-}
-
-impl Regs {
-    fn load(&self, addr: u8) -> u16 {
-        self.arr[addr]
-    }
-    fn store(&mut self, addr: u8, val: u16) {
-        self.arr[addr] = val
-    }
-    fn new() -> Regs {
-        Regs { arr: [0, ..16] }
     }
 }
 
@@ -197,12 +84,19 @@ impl Instruction {
             destreg: 0
         }
     }
+    fn print() {
+
 }
 
 impl fmt::Show for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "<Instr: {:t}, {:?}, {:t}>",
-        self.code, self.optype, self.opcode)
+        write!(f.buf, 
+"|----------------------- Instruction: {:016t} --------------------|
+| OpType:{:06?} | Opcode:{:04t}          | DestReg:{:02u} | DestMode:{:11?} |
+| SourceReg:{:02u}  | SourceMode:{:?} | B/W:{:05b}  | Offset:{:04x}          |
+|--------------------------------------------------------------------------|",
+               self.code,self.optype, self.opcode, self.destreg,self.Ad,
+               self.sourcereg, self.As, self.bw, self.offset)
     }
 }
 
@@ -216,13 +110,20 @@ enum AddressingMode {
     Direct,
     Indexed,
     Indirect,
-    IndirectInc
+    IndirectInc,
+    Absolute,
+    ConstantNeg1,
+    Constant0,
+    Constant1,
+    Constant2,
+    Constant4,
+    Constant8,
 }
 
 fn get_optype(code: u16) -> OpType {
-    match code >> 12 {
-        0 => NoArg,
-        1 => OneArg,
+    match code >> 13 {
+        0 => OneArg,
+        1 => NoArg,
         _ => TwoArg
     }
 }
@@ -239,66 +140,71 @@ fn parse_inst(code: u16) -> Instruction {
 }
 
 fn twoarg_split(inst: u16) -> Instruction {
-    let destreg = (inst & 0xf) as u8;
-    let bw = ((inst & 0x40) >> 6) != 0;
-    let As = getAddressingMode(((inst & 0x30) >> 4) as u8);
-    let Ad = getAddressingMode(((inst & 0x80) >> 7) as u8);
-    let sourcereg = ((inst & 0xf00) >> 8) as u8;
-    let opcode = ((inst & 0xf000) >> 12) as u8;
-    Instruction { 
-        code: inst,
-        optype: TwoArg,
-        opcode: opcode, 
-        destreg: destreg,
-        sourcereg: sourcereg,
-        As : As,
-        Ad : Ad,
-        bw : bw,
-        offset : 0
+    let mut inst = Instruction::new();
+    inst.optype = TwoArg;
+    inst.destreg = (inst & 0xf) as u8;
+    inst.sourcereg = ((inst & 0xf00) >> 8) as u8;
+    inst.bw = ((inst & 0x40) >> 6) != 0;
+    inst.As = get_addressing_mode(((inst & 0x30) >> 4) as u8, sourcereg);
+    inst.Ad = get_addressing_mode(((inst & 0x80) >> 7) as u8, destreg);
+    inst.opcode = ((inst & 0xf000) >> 12) as u8;
+    inst.arg1 =  match As {
+        Indexed => cpu.next_inst(),
+        _ => 0
     }
+    inst.arg2 = match Ad {
+        Indexed => cpu.next_inst(),
+        _ => 0
+    }
+    inst
 }
 
 fn onearg_split(inst: u16) -> Instruction {
-    let destreg = (inst & 0xf) as u8;
-    let Ad = getAddressingMode(((inst & 0x30) >> 4) as u8);
-    let bw = ((inst & 0x40) >> 6) == 0;
-    let opcode = ((inst & 0x380) >> 7) as u8;
-    Instruction { 
-        code: inst,
-        optype: OneArg,
-        opcode: opcode, 
-        destreg: destreg,
-        Ad : Ad,
-        bw : bw,
-        sourcereg : 0,
-        offset : 0,
-        As : Direct,
+    let mut inst = Instruction::new();
+    inst.optype = OneArg;
+    inst.destreg = (inst & 0xf) as u8;
+    inst.Ad = get_addressing_mode(((inst & 0x30) >> 4) as u8, destreg);
+    inst.bw = ((inst & 0x40) >> 6) != 0;
+    inst.opcode = ((inst & 0x380) >> 7) as u8;
+    inst.arg1 =  match As {
+        Indexed => cpu.next_inst(),
+        _ => 0
     }
+    inst
 }
 
 fn noarg_split(inst: u16) -> Instruction {
-    let offset = (inst & 0x1ff);
-    let opcode = ((inst & 0x1c00) >> 7) as u8;
-    Instruction { 
-        code: inst,
-        optype: NoArg,
-        opcode: opcode,
-        offset: offset,
-        bw : false,
-        Ad : Indirect,
-        As: Indirect,
-        sourcereg : 0,
-        destreg : 0,
-    }
+    let mut inst = Instruction::new();
+    inst.optype = NoArg;
+    inst.offset = (inst & 0x3ff);
+    inst.opcode = ((inst & 0x1c00) >> 10) as u8;
+    inst
 }
 
-fn getAddressingMode(As: u8) -> AddressingMode {
-    match As {
-        0b00 => Direct,
-        0b01 => Indexed,
-        0b10 => Indirect,
-        0b11 => IndirectInc,
-        _ => fail!("Invalid addressing mode")
+fn get_addressing_mode(reg: u8, As: u8) -> AddressingMode {
+    match reg {
+        2 => match As {
+            0b00 => Direct,
+            0b01 => Absolute,
+            0b10 => Constant4,
+            0b11 => Constant8,
+            _ => fail!("Invalid addressing mode")
+        },
+        3 => match As {
+            0b00 => Constant0,
+            0b01 => Constant1,
+            0b10 => Constant2,
+            0b11 => ConstantNeg1,
+            _ => fail!("Invalid addressing mode")
+        },
+        0..15 => match As {
+            0b00 => Direct,
+            0b01 => Indexed,
+            0b10 => Indirect,
+            0b11 => IndirectInc,
+            _ => fail!("Invalid addressing mode")
+        },
+        _ => fail!("Invalid register")
     }
 }
 
@@ -319,6 +225,13 @@ impl Cpu {
                 let offset = self.next_inst();
                 self.ram.load(regval + offset, self.inst.bw)
             }
+            Absolute => self.next_inst(),
+            ConstantNeg1 => -1,
+            Constant0 => 0,
+            Constant1 => 1,
+            Constant2 => 2,
+            Constant4 => 4,
+            Constant8 => 8
         }
     }
 
@@ -334,7 +247,8 @@ impl Cpu {
             Indexed => {
                 let offset = self.next_inst();
                 self.ram.store(regval + offset, val, self.inst.bw )
-            }
+            },
+            _ => fail!("Invalid addressing mode")
         }
     }
 
@@ -382,6 +296,46 @@ impl Cpu {
                 0b1101 => self.BIS(),
                 0b1110 => self.XOR(),
                 0b1111 => self.AND(),
+                _ => fail!("Illegal opcode")
+            }
+        }
+    }
+
+    fn namer(&mut self) -> ~str {
+        match self.inst.optype {
+            NoArg => match self.inst.opcode {
+                0b000 => ~"JNE",
+                0b001 => ~"JEQ",
+                0b010 => ~"JNC",
+                0b011 => ~"JC",
+                0b100 => ~"JN",
+                0b101 => ~"JGE",
+                0b110 => ~"JL",
+                0b111 => ~"JMP",
+                _ => fail!("Illegal opcode")
+                },
+            OneArg => match self.inst.opcode {
+                0b000 => ~"RRC",
+                0b001 => ~"SWPB",
+                0b010 => ~"RRA",
+                0b011 => ~"SXT",
+                0b100 => ~"PUSH",
+                0b101 => ~"CALL",
+                0b110 => ~"RETI",
+                _ => fail!("Illegal opcode")
+                },
+            TwoArg => match self.inst.opcode {
+                0b0100 => ~"MOV",
+                0b0101 => ~"ADD",
+                0b0110 => ~"ADDC",
+                0b0111 => ~"SUBC",
+                0b1001 => ~"SUB",
+                0b1010 => ~"DADD",
+                0b1011 => ~"BIT",
+                0b1100 => ~"BIC",
+                0b1101 => ~"BIS",
+                0b1110 => ~"XOR",
+                0b1111 => ~"AND",
                 _ => fail!("Illegal opcode")
             }
         }
@@ -627,14 +581,14 @@ impl Cpu {
 #[test]
 // Add a bunch of tests here. Important to get right.
 fn parse_tests() {
-    let instrs: [u16,..1] =         [0x4031]; //MOV
-    let optype: [OpType,..1]=       [TwoArg];
-    let opcodes: [u8,..1]=          [0b0100];
-    let sourceregs: [u8,..1]=       [0b0000];
-    let Ads: [AddressingMode,..1] = [Direct];
-    let bws: [bool,..1] =           [false];
-    let Ass: [AddressingMode,..1] = [IndirectInc];
-    let destregs: [u8,..1] =        [0b0001];
+    let instrs: ~[u16] =         ~[0x4031,0x37ff,0x118b]; //MOV, JGE, SXT
+    let optype: ~[OpType]=       ~[TwoArg, NoArg, OneArg];
+    let opcodes: ~[u8]=          ~[0b0100, 0b101, 0b011];
+    let sourceregs: ~[u8]=       ~[0, 0, 0];
+    let Ads: ~[AddressingMode] = ~[Direct, Direct, Direct];
+    let bws: ~[bool] =           ~[false, false, false];
+    let Ass: ~[AddressingMode] = ~[IndirectInc, Direct, Direct];
+    let destregs: ~[u8] =        ~[0b0001, 0, 11];
     for (ix, &code) in instrs.iter().enumerate() {
         let inst = parse_inst(code);
         println!("{}", inst);
@@ -653,6 +607,6 @@ fn cpu_test() {
     let mut cpu = Cpu::new();
     cpu.inst = parse_inst(0x4031);
     cpu.ram.arr[0] = 1;
-    cpu.ram.arr[0xffe0] = 1;
+    cpu.ram.arr[0x4000] = 1;
     println!("{}", cpu);
 }
