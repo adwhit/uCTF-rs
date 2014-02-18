@@ -12,7 +12,7 @@
 0101    ADD src,dest    dest += src  
 0110    ADDC src,dest   dest += src + C  
 0111    SUBC src,dest   dest += ~src + C     
-1001    SUB src,dest    dest -= src Impltd as dest += ~src + 1.
+1000    SUB src,dest    dest -= src Impltd as dest += ~src + 1.
 1001    CMP src,dest    dest - src  Sets status only 
 1010    DADD src,dest   dest += src + C, BCD.    
 1011    BIT src,dest    dest & src  Sets status only 
@@ -34,7 +34,7 @@
 
 //Flags
 
-use mem::{Mem, MemUtil, Ram, Regs};
+use mem::{MemUtil, Ram, Regs};
 use std::fmt;
 
 mod mem;
@@ -54,11 +54,13 @@ pub struct Cpu {
 
 impl fmt::Show for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}\n\n{}\n\n{}", self.ram, self.regs, self.inst)
+        write!(f.buf, "********************* CPU *****************
+{}\n\n{}\n\n{}\n++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst)
     }
 }
 
 struct Instruction {
+    //TODO - introduce option types
     code: u16,
     optype: OpType,
     opcode: u8,
@@ -117,7 +119,8 @@ impl Instruction {
                 0b0101 => ~"ADD",
                 0b0110 => ~"ADDC",
                 0b0111 => ~"SUBC",
-                0b1001 => ~"SUB",
+                0b1000 => ~"SUB",
+                0b1001 => ~"CMP",
                 0b1010 => ~"DADD",
                 0b1011 => ~"BIT",
                 0b1100 => ~"BIC",
@@ -131,26 +134,43 @@ impl Instruction {
 
     fn to_string(&self) -> ~str {
         let op = self.namer();
+        let byte = if self.bw { ~".B" } else { ~"" };
         let (a1, a2) = match self.optype {
-            NoArg => (format!("{:u}", self.offset), ~""),
-            OneArg => (format!("{:u}", self.destarg), ~""),
-            TwoArg => (format!("{:u}", self.sourcearg), format!("{:u}", self.destarg))
+            NoArg => (format!("\\#0x{:u}", self.offset), ~""),
+            OneArg => (optype_formatter(self.Ad, self.destreg, self.destarg), ~""),
+            TwoArg => (optype_formatter(self.As, self.sourcereg, self.sourcearg),
+                       optype_formatter(self.Ad, self.destreg, self.destarg))
         };
-        format!("{:s} {:s} {:s}", op, a1, a2)
+        format!("{:s}{:s} {:s} {:s}", op, byte, a1, a2)
     }
 }
+
+fn optype_formatter(mode: AddressingMode, reg: u8, arg: u16) -> ~str {
+    match mode {
+        Direct => format!("r{:u}", reg),
+        Indirect => format!("@r{:u}", reg),
+        IndirectInc => format!("@r{:u}+", reg),
+        Absolute => format!("&0x{:x}", arg),
+        Indexed => format!("(0x{:04x})r{:u}+1", reg, arg),
+        _ => format!("{:u}", arg)
+    }
+}
+
+
+
 
 impl fmt::Show for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f.buf, 
-"|---------- Instruction: {:016t} ----------------|
+"|-------- Instruction: 0x{:04x}//{:016t}-----------|
 | OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}  | 
 | DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x} |
 | SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x} |
-|---------------------------------------------------------|",
-               self.code,self.optype, self.opcode, self.bw, self.offset,
+|--------------          {:20s}-------------|",
+               self.code,self.code,
+               self.optype, self.opcode, self.bw, self.offset,
                self.destreg, self.Ad,self.destarg,
-               self.sourcereg, self.As, self.sourcearg)
+               self.sourcereg, self.As, self.sourcearg, self.to_string())
     }
 }
 
@@ -166,12 +186,12 @@ enum AddressingMode {
     Indirect,
     IndirectInc,
     Absolute,
-    ConstantNeg1,
-    Constant0,
-    Constant1,
-    Constant2,
-    Constant4,
-    Constant8,
+    ConstNeg1,
+    Const0,
+    Const1,
+    Const2,
+    Const4,
+    Const8,
 }
 
 fn get_optype(code: u16) -> OpType {
@@ -233,15 +253,15 @@ fn get_addressing_mode(As: u8, reg: u8) -> AddressingMode {
         2 => match As {
             0b00 => Direct,
             0b01 => Absolute,
-            0b10 => Constant4,
-            0b11 => Constant8,
+            0b10 => Const4,
+            0b11 => Const8,
             _ => fail!("Invalid addressing mode")
         },
         3 => match As {
-            0b00 => Constant0,
-            0b01 => Constant1,
-            0b10 => Constant2,
-            0b11 => ConstantNeg1,
+            0b00 => Const0,
+            0b01 => Const1,
+            0b10 => Const2,
+            0b11 => ConstNeg1,
             _ => fail!("Invalid addressing mode")
         },
         0..15 => match As {
@@ -258,26 +278,27 @@ fn get_addressing_mode(As: u8, reg: u8) -> AddressingMode {
 impl Cpu {
 
     // memory/register interface
-    fn load(&mut self, regadr: u8, mode: AddressingMode) -> u16 {
+    
+    //turn indirects into values
+    fn resolve(&mut self, regadr: u8, mode: AddressingMode, arg: u16) -> u16 {
         let regval = self.regs.load(regadr);
         match mode {
-            Direct => regval,
             Indirect => self.ram.load(regval, self.inst.bw),
             IndirectInc => {
-                self.regs.store(regadr, regval + 1);
+                self.regs.store(regadr, regval + 2);
                 self.ram.load(regval, self.inst.bw)
             }
             Indexed => {
-                let offset = self.next_inst();
-                self.ram.load(regval + offset, self.inst.bw)
+                self.ram.load(regval + arg, self.inst.bw)
             }
-            Absolute => self.next_inst(),
-            ConstantNeg1 => -1,
-            Constant0 => 0,
-            Constant1 => 1,
-            Constant2 => 2,
-            Constant4 => 4,
-            Constant8 => 8
+            Direct => regval,
+            Absolute => arg,
+            ConstNeg1 => -1,
+            Const0 => 0,
+            Const1 => 1,
+            Const2 => 2,
+            Const4 => 4,
+            Const8 => 8
         }
     }
 
@@ -307,7 +328,7 @@ impl Cpu {
         self.store(val);
     }
 
-    fn caller(&mut self) {
+    fn exec(&mut self) {
         match self.inst.optype {
             NoArg => match self.inst.opcode {
                 0b000 => self.JNE(),
@@ -335,7 +356,8 @@ impl Cpu {
                 0b0101 => self.ADD(),
                 0b0110 => self.ADDC(),
                 0b0111 => self.SUBC(),
-                0b1001 => self.SUB(),
+                0b1000 => self.SUB(),
+                0b1001 => self.CMP(),
                 0b1010 => self.DADD(),
                 0b1011 => self.BIT(),
                 0b1100 => self.BIC(),
@@ -353,10 +375,12 @@ impl Cpu {
     fn get_args(&mut self) {
         self.inst.sourcearg =  match self.inst.As {
             Indexed => self.next_inst(),
+            Absolute => self.next_inst(),
             _ => 0
         };
         self.inst.destarg = match self.inst.Ad {
             Indexed => self.next_inst(),
+            Absolute => self.next_inst(),
             _ => 0
         };
     }
@@ -386,16 +410,22 @@ impl Cpu {
     fn next_inst(&mut self) -> u16 {
         let inst = self.ram.loadw(self.regs.arr[0]);
         self.regs.arr[0] += 2;
+        assert!(self.regs.arr[0] % 2 == 0);
         inst
     }
 
     // load and execute one instruction
     fn step(&mut self) { 
+        self.exec();
+        self.prepare_next();
+    }
+
+    fn prepare_next(&mut self) {
         let code = self.next_inst();
         self.inst = parse_inst(code);
         self.get_args();
-        self.caller()
     }
+
 
     fn new() -> Cpu { 
         Cpu {
@@ -464,7 +494,7 @@ impl Cpu {
 
     fn RRC(&mut self) {
         //XXX think this is wrong
-        let mut val = self.load(self.inst.destreg, self.inst.Ad);
+        let mut val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         let C = self.getflag(CARRYF);
         val >>= 1;
         if C { val |= 0x8000 }
@@ -472,7 +502,7 @@ impl Cpu {
     }
 
     fn SWPB(&mut self) {
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         let topbyte = val >> 8;
         let botbyte = val << 8;
         self.store(topbyte | botbyte)
@@ -484,7 +514,7 @@ impl Cpu {
     }
 
     fn SXT(&mut self) {
-        let mut val = self.load(self.inst.destreg, self.inst.Ad);
+        let mut val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         if (val & 0x0080) != 0 {
             //negative
             val |= 0xff00
@@ -496,8 +526,8 @@ impl Cpu {
     }
 
     fn PUSH(&mut self) {
-        let val = self.load(self.inst.destreg, self.inst.Ad);
-        let spval = self.load(1u8, Direct);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
+        let spval = self.resolve(1u8, Direct, self.inst.destarg);
         self._store(2u8, Indirect, val);        //push 
         self._store(2u8, Direct, spval - 2);    //decrement sp
     }
@@ -517,19 +547,19 @@ impl Cpu {
     // Two arg
 
     fn MOV(&mut self) {
-        let val = self.load(self.inst.sourcereg, self.inst.As);
-        self.store(val)
+        let val = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        self.store(val);
     }
 
     fn ADD(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.set_and_store(val + inc)
     }
 
     fn ADDC(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         let C = self.getflag(CARRYF);
         if C {
             self.set_and_store(val + inc + 1)
@@ -539,8 +569,8 @@ impl Cpu {
     }
 
     fn SUBC(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         let C = self.getflag(CARRYF);
         if C {
             self.set_and_store(val - inc + 1)
@@ -550,14 +580,14 @@ impl Cpu {
     }
 
     fn SUB(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.set_and_store(val - inc)
     }
 
     fn CMP(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.setflags(val - inc);
     }
 
@@ -566,39 +596,38 @@ impl Cpu {
     }
 
     fn BIT(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.setflags(inc & val);
     }
 
     fn BIC(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.store(val & !inc)
     }
 
     fn BIS(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.store(val | inc)
     }
 
     fn XOR(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.set_and_store(val ^ inc)
     }
 
     fn AND(&mut self) {
-        let inc = self.load(self.inst.sourcereg, self.inst.As);
-        let val = self.load(self.inst.destreg, self.inst.Ad);
+        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
+        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         self.set_and_store(val & inc)
     }
 
 }
 
 #[test]
-// Add a bunch of tests here. Important to get right.
 fn parse_tests() {
     let instrs: ~[u16] =         ~[0x4031,0x37ff,0x118b]; //MOV, JGE, SXT
     let optype: ~[OpType]=       ~[TwoArg, NoArg, OneArg];
@@ -624,10 +653,18 @@ fn parse_tests() {
 #[test]
 fn cpu_test() {
     let mut cpu = Cpu::new();
-    cpu.ram.arr[0] = 0x4031;
-    cpu.ram.arr[1] = 0x4400;
-    println!("{}", cpu);
+    let v: ~[u8] = ~[0x31,0x40,0x00,0x44,0x15,0x42,0x5c,0x01,
+          0x75,0xf3,0x35,0xd0,0x08,0x5a];
+    for (ix, &val) in v.iter().enumerate() {
+        cpu.ram.arr[ix] = val
+    }
+    cpu.prepare_next();
+    println!("{}\n", cpu);
     cpu.step();
-    println!("{}", cpu);
-    println!("{}", cpu.inst.to_string());
+    println!("{}\n", cpu);
+    cpu.step();
+    println!("{}\n", cpu);
+    cpu.step();
+    println!("{}\n", cpu);
+
 }
