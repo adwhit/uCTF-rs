@@ -54,8 +54,14 @@ pub struct Cpu {
 
 impl fmt::Show for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "********************* CPU *****************
-{}\n\n{}\n\n{}\n++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst)
+        write!(f.buf,
+"******************* CPU *******************
+{}
+
+{}
+
+{}
+++++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst)
     }
 }
 
@@ -330,50 +336,55 @@ impl Cpu {
         self.store(val);
     }
     
-    fn getfunc(&mut self) -> || {
+    fn exec(&mut self) {
         match self.inst.optype {
-            NoArg => match self.inst.opcode {
-                0b000 => self.JNE,
-                0b001 => self.JEQ,
-                0b010 => self.JNC,
-                0b011 => self.JC,
-                0b100 => self.JN,
-                0b101 => self.JGE,
-                0b110 => self.JL,
-                0b111 => self.JMP,
-                _ => fail!("Illegal opcode")
-                },
-            OneArg => match self.inst.opcode {
-                0b000 => self.RRC,
-                0b001 => self.SWPB,
-                0b010 => self.RRA,
-                0b011 => self.SXT,
-                0b100 => self.PUSH,
-                0b101 => self.CALL,
-                0b110 => self.RETI,
-                _ => fail!("Illegal opcode")
-                },
-            TwoArg => match self.inst.opcode {
-                0b0100 => self.MOV,
-                0b0101 => self.ADD,
-                0b0110 => self.ADDC,
-                0b0111 => self.SUBC,
-                0b1000 => self.SUB,
-                0b1001 => self.CMP,
-                0b1010 => self.DADD,
-                0b1011 => self.BIT,
-                0b1100 => self.BIC,
-                0b1101 => self.BIS,
-                0b1110 => self.XOR,
-                0b1111 => self.AND,
-                _ => fail!("Illegal opcode")
+            NoArg => { 
+                let f = match self.inst.opcode {
+                    0b000 => JNE,
+                    0b001 => JEQ,
+                    0b010 => JNC,
+                    0b011 => JC,
+                    0b100 => JN,
+                    0b101 => JGE,
+                    0b110 => JL,
+                    0b111 => JMP,
+                    _ => fail!("Illegal opcode")
+                };
+                self.noarg_dispatch(f)
+            }
+            OneArg => {
+                let f = match self.inst.opcode {
+                    0b000 => RRC,
+                    0b001 => SWPB,
+                    0b010 => RRA,
+                    0b011 => SXT,
+                    0b100 => PUSH,
+                    0b101 => CALL,
+                    0b110 => RETI,
+                    _ => fail!("Illegal opcode")
+                };
+                self.onearg_dispatch(f)
+            }
+            TwoArg => {
+                let f = match self.inst.opcode {
+                    0b0100 => MOV,
+                    0b0101 => ADD,
+                    0b0110 => ADDC,
+                    0b0111 => SUBC,
+                    0b1000 => SUB,
+                    0b1001 => CMP,
+                    0b1010 => DADD,
+                    0b1011 => BIT,
+                    0b1100 => BIC,
+                    0b1101 => BIS,
+                    0b1110 => XOR,
+                    0b1111 => AND,
+                    _ => fail!("Illegal opcode")
+                };
+                self.twoarg_dispatch(f)
             }
         }
     }
-
-    fn exec(&mut self) {
-    }
-
 
     // utility functions
 
@@ -439,118 +450,101 @@ impl Cpu {
             inst: Instruction::new()
         }
     }
-}
 
-impl Cpu {
-
-    //Instructions
-
-    // No args
-
-    fn JNE(&mut self) -> bool { if !self.getflag(ZEROF) { true } else { false } }
-    fn JEQ(&mut self) -> bool { if self.getflag(ZEROF) { true } else { false } }
-    fn JNC(&mut self) -> bool { if !self.getflag(CARRYF) { true } else { false } }
-    fn JC(&mut self) -> bool { if !self.getflag(CARRYF) { true } else { false } }
-    fn JN(&mut self) -> bool { if self.getflag(NEGF) { true } else { false } }
-    fn JGE(&mut self) -> bool  { if self.getflag(NEGF) == self.getflag(OVERF) { true } else {false} }
-    fn JL(&mut self) -> bool { if !(self.getflag(NEGF) == self.getflag(OVERF)) { true } else { false } }
-    fn JMP(&mut self) -> bool { true }
-
-    // TODO: These calls should use the API
-    fn noarg_dispatcher(&self, f: || -> bool) {
-        if f() { self.regs.arr[0] = self.regs.arr[0] + self.inst.offset }
+    fn noarg_dispatch(&mut self, f: fn(&Cpu) -> bool) {
+        if f(self) { self.regs.arr[0] = self.regs.arr[0] + self.inst.offset }
     }
 
-    // One arg
-
-    fn RRC(&mut self) {
-        //XXX think this is wrong
-        let mut val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
-        let C = self.getflag(CARRYF);
-        val >>= 1;
-        if C { val |= 0x8000 }
-        self.set_and_store(val)
-    }
-
-    fn SWPB(&mut self) {
+    fn onearg_dispatch(&mut self, f: fn(&mut Cpu, val: u16)) {
         let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
-        let topbyte = val >> 8;
-        let botbyte = val << 8;
-        self.store(topbyte | botbyte)
+        f(self, val)
     }
 
-    fn RRA(&mut self) {
-        // TODO: Implement
-        fail!("Not implemented")
-    }
-
-    fn SXT(&mut self) {
-        let mut val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
-        if (val & 0x0080) != 0 {
-            //negative
-            val |= 0xff00
-        } else {
-            //positive
-            val &= 0x00ff
-        }
-        self.store(val)
-    }
-
-    fn PUSH(&mut self) {
-        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
-        let spval = self.resolve(1u8, Direct, self.inst.destarg);
-        self._store(2u8, Indirect, val);        //push 
-        self._store(2u8, Direct, spval - 2);    //decrement sp
-    }
-
-    fn CALL(&mut self) {
-        self.inst.destreg = 0;
-        self.inst.Ad = Direct;
-        self.PUSH(); // push pc to stack 
-        self.inst.offset = self.next_inst();
-        self.JMP() // branch
-    }
-
-    fn RETI(&mut self) {
-        fail!("Not implemented")
-    }
-
-    // Two arg
-    fn twoarg_dispatch(&mut self, f: |inc: u16, val:u16|) {
+    fn twoarg_dispatch(&mut self, f: fn(&mut Cpu, val: u16, inc:u16)) {
         let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
         let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
-        f(inc, val)
+        f(self, val, inc)
     }
-
-    fn ADDC(&mut self, val: u16, inc: u16) {
-        let C = self.getflag(CARRYF);
-        if C {
-            self.set_and_store(val + inc + 1)
-        } else {
-            self.set_and_store(val + inc)
-        }
-    }
-
-    fn SUBC(&mut self, val: u16, inc: u16) {
-        let C = self.getflag(CARRYF);
-        if C {
-            self.set_and_store(val - inc + 1)
-        } else {
-            self.set_and_store(val - inc)
-        }
-    }
-
-    fn MOV(&mut self, val: u16, inc: u16) { self.store(val) }
-    fn ADD(&mut self, val: u16, inc: u16) { self.set_and_store(val + inc) }
-    fn SUB(&mut self, val:u16, inc: u16) { self.set_and_store(val - inc) }
-    fn CMP(&mut self, val: u16, inc: u16) { self.setflags(val - inc); }
-    fn DADD(&mut self, val: u16, inc: u16) { fail!("Not implemented") }
-    fn BIT(&mut self, val: u16, inc: u16) { self.setflags(inc & val); } 
-    fn BIC(&mut self, val: u16, inc: u16) { self.store(val & !inc) }
-    fn BIS(&mut self, val: u16, inc: u16) { self.store(val | inc) }
-    fn XOR(&mut self, val: u16, inc: u16) { self.set_and_store(val ^ inc) }
-    fn AND(&mut self, val: u16, inc: u16) { self.set_and_store(val & inc) }
 }
+
+//Instructions
+
+//No arg
+
+fn JNE(cpu : &Cpu) -> bool { if !cpu.getflag(ZEROF) { true } else { false } }
+fn JEQ(cpu : &Cpu) -> bool { if cpu.getflag(ZEROF) { true } else { false } }
+fn JNC(cpu : &Cpu) -> bool { if !cpu.getflag(CARRYF) { true } else { false } }
+fn JC(cpu : &Cpu) -> bool { if !cpu.getflag(CARRYF) { true } else { false } }
+fn JN(cpu : &Cpu) -> bool { if cpu.getflag(NEGF) { true } else { false } }
+fn JGE(cpu : &Cpu) -> bool  { if cpu.getflag(NEGF) == cpu.getflag(OVERF) { true } else {false} }
+fn JL(cpu : &Cpu) -> bool { if !(cpu.getflag(NEGF) == cpu.getflag(OVERF)) { true } else { false } }
+fn JMP(cpu : &Cpu) -> bool { true }
+
+// One arg
+
+//XXX think this is wrong
+fn RRC(cpu: &mut Cpu, mut val: u16) {
+    let C = cpu.getflag(CARRYF);
+    val >>= 1;
+    if C { val |= 0x8000 }
+    cpu.set_and_store(val)
+}
+
+fn SWPB(cpu: &mut Cpu, val: u16) {
+    let topbyte = val >> 8;
+    let botbyte = val << 8;
+    cpu.store(topbyte | botbyte)
+}
+
+//TODO: implement
+fn RRA(cpu:&mut Cpu, val: u16) { fail!("Not implemented") }
+
+fn SXT(cpu:&mut Cpu, mut val: u16) {
+    if (val & 0x0080) != 0 { val |= 0xff00 } else { val &= 0x00ff }
+    cpu.store(val)
+}
+
+fn PUSH(cpu:&mut Cpu, val: u16) {
+    let spval = cpu.resolve(1u8, Direct, cpu.inst.destarg);
+    cpu._store(2u8, Indirect, val);        //push 
+    cpu._store(2u8, Direct, spval - 2);    //decrement sp
+}
+
+//XXX: broken
+fn CALL(cpu:&mut Cpu,val: u16) {
+    cpu.inst.destreg = 0;
+    cpu.inst.Ad = Direct;
+    PUSH(cpu, val); // push pc to stack 
+    cpu.inst.offset = cpu.next_inst();
+    JMP(cpu); // branch
+}
+
+fn RETI(cpu:&mut Cpu, val: u16) {
+    fail!("Not implemented")
+}
+
+// Two arg
+
+fn ADDC(cpu:&mut Cpu, val: u16, inc: u16) {
+    let C = cpu.getflag(CARRYF);
+    if C { cpu.set_and_store(val + inc + 1) } else { cpu.set_and_store(val + inc) }
+}
+
+fn SUBC(cpu:&mut Cpu, val: u16, inc: u16) {
+    let C = cpu.getflag(CARRYF);
+    if C { cpu.set_and_store(val - inc + 1) } else { cpu.set_and_store(val - inc) }
+}
+
+fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val) }
+fn ADD(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val + inc) }
+fn SUB(cpu: &mut Cpu, val:u16, inc: u16) { cpu.set_and_store(val - inc) }
+fn CMP(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(val - inc); }
+fn DADD(cpu: &mut Cpu, val: u16, inc: u16) { fail!("Not implemented") }
+fn BIT(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(inc & val); } 
+fn BIC(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val & !inc) }
+fn BIS(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val | inc) }
+fn XOR(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val ^ inc) }
+fn AND(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val & inc) }
 
 #[test]
 fn parse_tests() {
