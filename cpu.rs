@@ -431,7 +431,7 @@ impl Cpu {
     }
 
     // load and execute one instruction
-    fn step(&mut self) { 
+    pub fn step(&mut self) { 
         self.exec();
         self.prepare_next();
     }
@@ -440,15 +440,6 @@ impl Cpu {
         let code = self.next_inst();
         self.inst = parse_inst(code);
         self.get_args();
-    }
-
-
-    fn new() -> Cpu { 
-        Cpu {
-            regs: Regs::new(),
-            ram: Ram::new(),
-            inst: Instruction::new()
-        }
     }
 
     fn noarg_dispatch(&mut self, f: fn(&Cpu) -> bool) {
@@ -464,6 +455,23 @@ impl Cpu {
         let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
         let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
         f(self, val, inc)
+    }
+
+    pub fn new() -> Cpu { 
+        Cpu {
+            regs: Regs::new(),
+            ram: Ram::new(),
+            inst: Instruction::new()
+        }
+    }
+
+
+    pub fn init(image: &[u8]) -> Cpu {
+        let mut cpu = Cpu::new();
+        cpu.ram.loadimage(image);
+        cpu.regs.arr[0] = 0x4400;
+        cpu.prepare_next();
+        cpu
     }
 }
 

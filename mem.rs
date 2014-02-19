@@ -49,6 +49,12 @@ impl Ram {
     pub fn new() -> Ram {
         Ram { arr: [0, ..0x10000] }
     }
+
+    pub fn loadimage(&mut self, image: &[u8]) {
+        for (ix, &byte) in image.iter().enumerate() {
+            self.storeb(0x4400 + ix as u16, byte)
+        }
+    }
 }
 
 impl fmt::Show for Ram {
