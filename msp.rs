@@ -282,7 +282,7 @@ impl Cpu {
     //turn indirects into values
     fn resolve(&mut self, regadr: u8, mode: AddressingMode, arg: u16) -> u16 {
         let regval = self.regs.load(regadr);
-        match mode {
+        let mut val = match mode {
             Indirect => self.ram.load(regval, self.inst.bw),
             IndirectInc => {
                 self.regs.store(regadr, regval + 2);
@@ -299,7 +299,9 @@ impl Cpu {
             Const2 => 2,
             Const4 => 4,
             Const8 => 8
-        }
+        };
+        if self.inst.bw { val &= 0xff };
+        val
     }
 
     fn _store(&mut self, regadr: u8, mode: AddressingMode, val: u16) {
