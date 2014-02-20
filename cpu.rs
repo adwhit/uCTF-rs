@@ -543,16 +543,16 @@ fn SUBC(cpu:&mut Cpu, val: u16, inc: u16) {
     if C { cpu.set_and_store(val - inc + 1) } else { cpu.set_and_store(val - inc) }
 }
 
-fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val) }
+fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(inc) }
 fn ADD(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val + inc) }
-fn SUB(cpu: &mut Cpu, val:u16, inc: u16) { cpu.set_and_store(val - inc) }
+fn SUB(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val - inc) }
 fn CMP(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(val - inc); }
-fn DADD(cpu: &mut Cpu, val: u16, inc: u16) { fail!("Not implemented") }
 fn BIT(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(inc & val); } 
 fn BIC(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val & !inc) }
 fn BIS(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val | inc) }
 fn XOR(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val ^ inc) }
 fn AND(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val & inc) }
+fn DADD(cpu:&mut Cpu, val: u16, inc: u16) { fail!("Not implemented") }
 
 #[test]
 fn parse_tests() {
@@ -586,10 +586,6 @@ fn cpu_test() {
         cpu.ram.arr[ix] = val
     }
     cpu.prepare_next();
-    println!("{}\n", cpu);
-    cpu.step();
-    println!("{}\n", cpu);
-    cpu.step();
     println!("{}\n", cpu);
     cpu.step();
     println!("{}\n", cpu);
