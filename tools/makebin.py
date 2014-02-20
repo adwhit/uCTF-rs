@@ -2,8 +2,8 @@
 
 import sys
 
-if len(sys.argv) != 3:
-    print "Please supply input file and output file"
+if len(sys.argv) != 2:
+    print "Please supply input file"
     sys.exit(1)
 
 barr = []
@@ -16,5 +16,5 @@ with open(sys.argv[1]) as f:
             barr.append(big)
             barr.append(little)
 
-with open(sys.argv[2], "wb") as f:
+with open(sys.argv[1].partition(".")[0], "wb") as f:
     f.write(bytearray(barr))
