@@ -1,39 +1,3 @@
-/*
-000 RRC(.B) 9-bit rotate right through carry. 
-001 SWPB    Swap 8-bit register halves. No byte form.
-010 RRA(.B) Badly named, this is an 8-bit arithmetic right shift.
-011 SXT Sign extend 8 bits to 16. No byte form.
-100 PUSH(.B)    Push operand on stack. 
-101 CALL    Fetch operand, push PC,  assign operand value to PC. 
-110 RETI    Pop SP, then pop PC. 
-111 Not used    
-
-0100    MOV src,dest    dest = src  The status flags are NOT set.
-0101    ADD src,dest    dest += src  
-0110    ADDC src,dest   dest += src + C  
-0111    SUBC src,dest   dest += ~src + C     
-1000    SUB src,dest    dest -= src Impltd as dest += ~src + 1.
-1001    CMP src,dest    dest - src  Sets status only 
-1010    DADD src,dest   dest += src + C, BCD.    
-1011    BIT src,dest    dest & src  Sets status only 
-1100    BIC src,dest    dest &= ~src  Status flags are NOT set.
-1101    BIS src,dest    dest |= src   Status flags are NOT set.
-1110    XOR src,dest    dest ^= src  
-1111    AND src,dest    dest &=- src
-
-000 JNE/JNZ Jump if Z==0 (if !=)
-001 JEQ/Z   Jump if Z==1 (if ==)
-010 JNC/JLO Jump if C==0 (if unsigned <)
-011 JC/JHS  Jump if C==1 (if unsigned >=)
-100 JN  Jump if N==1 Note there is no "JP" if N==0!
-101 JGE Jump if N==V (if signed >=)
-110 JL  Jump if N!=V (if signed <)
-111 JMP Jump unconditionally
-
-*/
-
-//Flags
-
 use mem::{MemUtil, Ram, Regs};
 use std::fmt;
 

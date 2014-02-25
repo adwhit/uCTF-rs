@@ -1,2 +1,2 @@
 all:
-	rustc src/main.rs -Llib/ncurses-rs/lib/
+	rustc src/main.rs -o msp -L lib/ncurses-rs/lib/

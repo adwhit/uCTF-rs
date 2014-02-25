@@ -1,14 +1,15 @@
-
 #[feature(globs)];
 
 extern crate ncurses;
+
 use cpu::Cpu;
+pub use gui::mem;
 use std::io::File;
 use std::os::args;
-use ncurses::*;
+use nc = ncurses;
 
 mod cpu;
-mod mem;
+mod gui;
 
 fn main() {
     let argv = args();
@@ -16,29 +17,23 @@ fn main() {
         [_,v, ..] => v,
         _ => fail!("Please supply file argument")
     };
-    let mem = File::open(&Path::new(fpath)).read_to_end();
-    let mut cpu = match mem {
+    let memval = File::open(&Path::new(fpath)).read_to_end();
+    let mut cpu = match memval {
         Ok(v) => Cpu::init(v),
         Err(e) => fail!(e)
     };
-    initscr();
-    raw();
-    draw(cpu);
-    while true {
-        match getch() {
+    let windows = gui::Gui::init();
+    
+    loop {
+        match nc::wgetch(nc::stdscr) {
             113 => break,
-            115 => { cpu.step(); draw(cpu); },
-            _ => draw(cpu)
+            115 => { 
+                cpu.step(); 
+                windows.draw_ram(cpu.ram, cpu.regs.arr[0]);
+                windows.render();
+            }
+            _ => ()
             }
     }
-    endwin();
+    nc::endwin();
 }
-
-fn draw(cpu: Cpu) {
-    clear();
-    printw(format!("{}", cpu));
-    mvprintw(LINES - 1, 0, "S to advance, Q to exit");
-    refresh();
-}
-    
-
