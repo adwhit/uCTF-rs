@@ -25,12 +25,10 @@ pub struct Instruction {
     opcode: u8,
     offset: u16,
     bw: bool,
-    Ad: AddressingMode,
-    As: AddressingMode,
-    sourcereg: u8,
+    srcreg: u8,
     destreg: u8,
-    sourcearg: u16,
-    destarg: u16
+    srcmode: AddressingMode,
+    destmode: AddressingMode,
 }
 
 enum OpType {
@@ -41,16 +39,11 @@ enum OpType {
 
 enum AddressingMode {
     Direct,
-    Indexed,
+    Indexed(u16),
     Indirect,
-    IndirectInc,
-    Absolute,
-    ConstNeg1,
-    Const0,
-    Const1,
-    Const2,
-    Const4,
-    Const8,
+    IndirectInc(u16),
+    Absolute(u16),
+    Const(u16)
 }
 
 fn get_optype(code: u16) -> OpType {
@@ -72,15 +65,14 @@ fn parse_inst(code: u16) -> Instruction {
     }
 }
 
+
 fn twoarg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
     inst.code = code;
     inst.optype = TwoArg;
+    inst.srcreg = ((code & 0xf00) >> 8) as u8;
     inst.destreg = (code & 0xf) as u8;
-    inst.sourcereg = ((code & 0xf00) >> 8) as u8;
     inst.bw = ((code & 0x40) >> 6) != 0;
-    inst.As = get_addressing_mode(((code & 0x30) >> 4) as u8, inst.sourcereg);
-    inst.Ad = get_addressing_mode(((code & 0x80) >> 7) as u8, inst.destreg);
     inst.opcode = ((code & 0xf000) >> 12) as u8;
     inst
 }
@@ -90,7 +82,6 @@ fn onearg_split(code: u16) -> Instruction {
     inst.code = code;
     inst.optype = OneArg;
     inst.destreg = (code & 0xf) as u8;
-    inst.Ad = get_addressing_mode(((code & 0x30) >> 4) as u8, inst.destreg);
     inst.bw = ((code & 0x40) >> 6) != 0;
     inst.opcode = ((code & 0x380) >> 7) as u8;
     inst
@@ -105,34 +96,32 @@ fn noarg_split(code: u16) -> Instruction {
     inst
 }
 
-fn get_addressing_mode(As: u8, reg: u8) -> AddressingMode {
-    match reg {
-        2 => match As {
-            0b00 => Direct,
-            0b01 => Absolute,
-            0b10 => Const4,
-            0b11 => Const8,
-            _ => fail!("Invalid addressing mode")
-        },
-        3 => match As {
-            0b00 => Const0,
-            0b01 => Const1,
-            0b10 => Const2,
-            0b11 => ConstNeg1,
-            _ => fail!("Invalid addressing mode")
-        },
-        0..15 => match As {
-            0b00 => Direct,
-            0b01 => Indexed,
-            0b10 => Indirect,
-            0b11 => IndirectInc,
-            _ => fail!("Invalid addressing mode")
-        },
-        _ => fail!("Invalid register")
-    }
-}
-
 impl Cpu {
+
+    fn get_addressing_modes(&self) {
+        self.inst.srcmode = self.modes_(((self.inst.code & 0x30) >> 4) as u8, self.inst.srcreg);
+        self.inst.destmode = self.modes_(((self.inst.code & 0x80) >> 7) as u8, self.inst.destreg);
+    }
+
+    fn modes_(&self, modecode: u8, reg: u8) -> AddressingMode {
+        match (reg, modecode) {
+            (2,0b00) => Direct,
+            (2,0b01) => Absolute(self.next_inst()),
+            (2,0b10) => Const(4),
+            (2,0b11) => Const(8),
+            (3,0b00) => Const(0),
+            (3,0b01) => Const(1),
+            (3,0b10) => Const(2),
+            (3,0b11) => Const(-1),
+            (0,0b11) => Const(self.next_inst()),
+            (0..15,0b00) => Direct,
+            (0..15,0b01) => Indexed(self.next_inst()),
+            (0..15,0b10) => Indirect,
+            (1..15,0b11) => IndirectInc,
+            (_,_) => fail!("Invalid register")
+        }
+    }
+
 
     // memory/register interface
     
@@ -150,12 +139,7 @@ impl Cpu {
             }
             Direct => regval,
             Absolute => self.ram.load(arg, self.inst.bw),
-            ConstNeg1 => -1,
-            Const0 => 0,
-            Const1 => 1,
-            Const2 => 2,
-            Const4 => 4,
-            Const8 => 8
+            Const(n) => n
         };
         if self.inst.bw { val &= 0xff };
         val
@@ -181,7 +165,7 @@ impl Cpu {
     }
 
     fn store(&mut self, val: u16) {
-        self._store(self.inst.destreg, self.inst.Ad, val)
+        self._store(self.inst.destreg, self.inst.destmode, val)
     }
 
     fn set_and_store(&mut self, val: u16) {
@@ -240,20 +224,6 @@ impl Cpu {
     }
 
     // utility functions
-
-    fn get_args(&mut self) {
-        self.inst.sourcearg =  match self.inst.As {
-            Indexed => self.next_inst(),
-            Absolute => self.next_inst(),
-            _ => 0
-        };
-        self.inst.destarg = match self.inst.Ad {
-            Indexed => self.next_inst(),
-            Absolute => self.next_inst(),
-            _ => 0
-        };
-    }
-
     fn getflag(&self, flag: u16) -> bool {
         if (self.regs.arr[2] & flag) == 0 {
             false
@@ -294,7 +264,6 @@ impl Cpu {
         let pc = self.regs.arr[0];
         self.inst = parse_inst(code);
         self.inst.memloc = pc - 2;
-        self.get_args();
     }
 
     fn noarg_dispatch(&mut self, f: fn(&Cpu) -> bool) {
@@ -302,13 +271,13 @@ impl Cpu {
     }
 
     fn onearg_dispatch(&mut self, f: fn(&mut Cpu, val: u16)) {
-        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
+        let val = self.resolve(self.inst.destreg, self.inst.destmode, self.inst.destarg);
         f(self, val)
     }
 
     fn twoarg_dispatch(&mut self, f: fn(&mut Cpu, val: u16, inc:u16)) {
-        let inc = self.resolve(self.inst.sourcereg, self.inst.As, self.inst.sourcearg);
-        let val = self.resolve(self.inst.destreg, self.inst.Ad, self.inst.destarg);
+        let inc = self.resolve(self.inst.srcreg, self.inst.srcmode, self.inst.srcreg);
+        let val = self.resolve(self.inst.destreg, self.inst.destmode, self.inst.destarg);
         f(self, val, inc)
     }
 
@@ -381,7 +350,7 @@ fn PUSH(cpu:&mut Cpu, val: u16) {
 fn CALL(cpu:&mut Cpu,val: u16) {
     //val is location of branch
     cpu.inst.destreg = 0;
-    cpu.inst.Ad = Direct;
+    cpu.inst.destmode = Direct;
     PUSH(cpu,cpu.regs.arr[0]); // push pc to stack 
     cpu.regs.arr[0] = val
 }
@@ -440,11 +409,11 @@ impl Instruction {
             opcode: 0,
             offset: 0,
             bw: false,
-            Ad: Direct,
-            As: Direct,
-            sourcereg: 0,
+            destmode: Direct,
+            srcmode: Direct,
+            srcreg: 0,
             destreg: 0,
-            sourcearg: 0,
+            srcreg: 0,
             destarg: 0
         }
     }
@@ -495,9 +464,9 @@ impl Instruction {
         let byte = if self.bw { ~".B" } else { ~"" };
         let (a1, a2) = match self.optype {
             NoArg => (format!("\\#0x{:04x}", self.offset + 2), ~""),
-            OneArg => (optype_formatter(self.Ad, self.destreg, self.destarg), ~""),
-            TwoArg => (optype_formatter(self.As, self.sourcereg, self.sourcearg),
-                       optype_formatter(self.Ad, self.destreg, self.destarg))
+            OneArg => (optype_formatter(self.destmode, self.destreg, self.destarg), ~""),
+            TwoArg => (optype_formatter(self.srcmode, self.srcreg, self.srcreg),
+                       optype_formatter(self.destmode, self.destreg, self.destarg))
         };
         format!("{:s}{:s} {:s} {:s}", op, byte, a1, a2)
     }
@@ -524,8 +493,8 @@ impl fmt::Show for Instruction {
 |--------------          {:20s}-------------|",
                self.code,self.code,
                self.optype, self.opcode, self.bw, self.offset,
-               self.destreg, self.Ad,self.destarg,
-               self.sourcereg, self.As, self.sourcearg, self.to_string())
+               self.destreg, self.destmode,self.destarg,
+               self.srcreg, self.srcmode, self.srcreg, self.to_string())
     }
 }
 
@@ -544,10 +513,10 @@ fn parse_tests() {
         //println!("{}", inst);
         assert_eq!(inst.opcode, opcodes[ix]);
         assert_eq!(inst.optype as u8, optype[ix] as u8);
-        assert_eq!(inst.sourcereg, sourceregs[ix]);
-        assert_eq!(inst.Ad as u8, Ads[ix] as u8);
+        assert_eq!(inst.srcreg, sourceregs[ix]);
+        assert_eq!(inst.destmode as u8, Ads[ix] as u8);
         assert_eq!(inst.bw, bws[ix]);
-        assert_eq!(inst.As as u8, Ass[ix] as u8);
+        assert_eq!(inst.srcmode as u8, Ass[ix] as u8);
         assert_eq!(inst.destreg, destregs[ix]);
     }
 }
