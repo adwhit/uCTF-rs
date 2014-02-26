@@ -18,10 +18,10 @@ static ASMHEIGHT : i32 = 50;
 static ASMWIDTH : i32 = 30;
 static ASMX : i32 = 52;
 static ASMY : i32 = 1;
-static DBGHEIGHT : i32 = 50;
-static DBGWIDTH : i32 = 30;
+static DBGHEIGHT : i32 = 7;
+static DBGWIDTH : i32 = 70;
 static DBGX : i32 = 52;
-static DBGY : i32 = 30;
+static DBGY : i32 = 10;
 
 pub struct Gui {
     ramwin : WINDOW,
@@ -63,7 +63,7 @@ impl Gui {
         }
     }
 
-    pub fn draw_ram(&self, r: mem::Ram, pc: u16) {
+    fn draw_ram(&self, r: mem::Ram, pc: u16) {
         let mut rowct = 1;
         for row in std::iter::range(0, r.arr.len()/16) {
             let mut nonzero = false;
@@ -91,7 +91,7 @@ impl Gui {
         wrefresh(self.ramwin);
     }
 
-    pub fn draw_regs(&self, r: mem::Regs, inst: &str) {
+    fn draw_regs(&self, r: mem::Regs, inst: &str) {
         mvwprintw(self.regwin,1,1, format!("PC  {:04x} SP  {:04x} SR  {:04x} CG  {:04x}",
             r.arr[0], r.arr[1], r.arr[2], r.arr[3]));
         mvwprintw(self.regwin,2,1, format!("R04 {:04x} R05 {:04x} R06 {:04x} R07 {:04x}",
@@ -105,10 +105,22 @@ impl Gui {
     }
 
 
+    fn draw_inst(&self, inst: cpu::Instruction) {
+        mvwprintw(self.dbgwin, 1,1, format!("0x{:04x}//{:016t}", inst.code,inst.code));
+        mvwprintw(self.dbgwin, 2,1, format!("OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}",
+                 inst.optype, inst.opcode, inst.bw, inst.offset));
+        mvwprintw(self.dbgwin, 3,1, format!("DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x}",
+                 inst.destreg, inst.Ad,inst.destarg));
+        mvwprintw(self.dbgwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x}",
+                 inst.sourcereg, inst.As, inst.sourcearg));
+        mvwprintw(self.dbgwin, 5,1,format!("{:20s}", inst.to_string()));
+        wrefresh(self.dbgwin);
+    }
 
     pub fn render(&self, cpu: cpu::Cpu) {
         self.draw_ram(cpu.ram, cpu.regs.arr[0]);
         self.draw_regs(cpu.regs, cpu.inst.to_string());
+        self.draw_inst(cpu.inst);
         mvprintw(LINES - 1, 0, "S to advance, Q to exit");
         move(10, 10);
         refresh();

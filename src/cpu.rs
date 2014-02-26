@@ -29,7 +29,7 @@ impl fmt::Show for Cpu {
     }
 }
 
-struct Instruction {
+pub struct Instruction {
     //TODO - introduce option types
     code: u16,
     optype: OpType,
