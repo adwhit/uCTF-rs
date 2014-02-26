@@ -41,7 +41,7 @@ enum AddressingMode {
     Direct,
     Indexed(u16),
     Indirect,
-    IndirectInc(u16),
+    IndirectInc,
     Absolute(u16),
     Const(u16)
 }
@@ -98,12 +98,12 @@ fn noarg_split(code: u16) -> Instruction {
 
 impl Cpu {
 
-    fn get_addressing_modes(&self) {
+    fn get_addressing_modes(&mut self) {
         self.inst.srcmode = self.modes_(((self.inst.code & 0x30) >> 4) as u8, self.inst.srcreg);
         self.inst.destmode = self.modes_(((self.inst.code & 0x80) >> 7) as u8, self.inst.destreg);
     }
 
-    fn modes_(&self, modecode: u8, reg: u8) -> AddressingMode {
+    fn modes_(&mut self, modecode: u8, reg: u8) -> AddressingMode {
         match (reg, modecode) {
             (2,0b00) => Direct,
             (2,0b01) => Absolute(self.next_inst()),
@@ -126,19 +126,19 @@ impl Cpu {
     // memory/register interface
     
     //turn indirects into values
-    fn resolve(&mut self, regadr: u8, mode: AddressingMode, arg: u16) -> u16 {
+    fn resolve(&mut self, regadr: u8, mode: AddressingMode) -> u16 {
         let regval = self.regs.load(regadr);
         let mut val = match mode {
+            Direct => regval,
             Indirect => self.ram.load(regval, self.inst.bw),
             IndirectInc => {
                 self.regs.store(regadr, regval + 2);
                 self.ram.load(regval, self.inst.bw)
             }
-            Indexed => {
-                self.ram.load(regval + arg, self.inst.bw)
+            Indexed(offset) => {
+                self.ram.load(regval + offset, self.inst.bw)
             }
-            Direct => regval,
-            Absolute => self.ram.load(arg, self.inst.bw),
+            Absolute(address) => self.ram.load(address, self.inst.bw),
             Const(n) => n
         };
         if self.inst.bw { val &= 0xff };
@@ -154,11 +154,11 @@ impl Cpu {
                 self.regs.store(regadr, regval + 1);
                 self.ram.store(regval, val, self.inst.bw)
             }
-            Indexed => {
-                self.ram.store(regval + self.inst.destarg, val, self.inst.bw )
+            Indexed(offset) => {
+                self.ram.store(regval + offset, val, self.inst.bw )
             },
-            Absolute => {
-                self.ram.store(self.inst.destarg, val, self.inst.bw)
+            Absolute(address) => {
+                self.ram.store(address, val, self.inst.bw)
             },
             _ => fail!("Invalid addressing mode")
         }
@@ -271,13 +271,13 @@ impl Cpu {
     }
 
     fn onearg_dispatch(&mut self, f: fn(&mut Cpu, val: u16)) {
-        let val = self.resolve(self.inst.destreg, self.inst.destmode, self.inst.destarg);
+        let val = self.resolve(self.inst.destreg, self.inst.destmode);
         f(self, val)
     }
 
     fn twoarg_dispatch(&mut self, f: fn(&mut Cpu, val: u16, inc:u16)) {
-        let inc = self.resolve(self.inst.srcreg, self.inst.srcmode, self.inst.srcreg);
-        let val = self.resolve(self.inst.destreg, self.inst.destmode, self.inst.destarg);
+        let inc = self.resolve(self.inst.srcreg, self.inst.srcmode);
+        let val = self.resolve(self.inst.destreg, self.inst.destmode);
         f(self, val, inc)
     }
 
@@ -411,10 +411,8 @@ impl Instruction {
             bw: false,
             destmode: Direct,
             srcmode: Direct,
-            srcreg: 0,
             destreg: 0,
             srcreg: 0,
-            destarg: 0
         }
     }
 
@@ -464,22 +462,22 @@ impl Instruction {
         let byte = if self.bw { ~".B" } else { ~"" };
         let (a1, a2) = match self.optype {
             NoArg => (format!("\\#0x{:04x}", self.offset + 2), ~""),
-            OneArg => (optype_formatter(self.destmode, self.destreg, self.destarg), ~""),
-            TwoArg => (optype_formatter(self.srcmode, self.srcreg, self.srcreg),
-                       optype_formatter(self.destmode, self.destreg, self.destarg))
+            OneArg => (optype_formatter(self.destmode, self.destreg), ~""),
+            TwoArg => (optype_formatter(self.srcmode, self.srcreg),
+                       optype_formatter(self.destmode, self.destreg))
         };
         format!("{:s}{:s} {:s} {:s}", op, byte, a1, a2)
     }
 }
 
-fn optype_formatter(mode: AddressingMode, reg: u8, arg: u16) -> ~str {
+fn optype_formatter(mode: AddressingMode, reg: u8) -> ~str {
     match mode {
         Direct => format!("r{:u}", reg),
         Indirect => format!("@r{:u}", reg),
         IndirectInc => format!("@r{:u}+", reg),
-        Absolute => format!("&0x{:x}", arg),
-        Indexed => format!("(0x{:x})r{:u}", arg, reg),
-        _ => format!("{:u}", arg)
+        Absolute(address) => format!("&0x{:x}", address),
+        Indexed(offset) => format!("(0x{:x})r{:u}", offset, reg),
+        Const(n) => format!("{:x}", n)
     }
 }
 
@@ -488,13 +486,13 @@ impl fmt::Show for Instruction {
         write!(f.buf, 
 "|-------- Instruction: 0x{:04x}//{:016t}-----------|
 | OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}  | 
-| DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x} |
-| SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x} |
+| DestReg:  {:02u}  | DestMode:  {:11?} |
+| SourceReg:{:02u}  | SourceMode:{:11?} |
 |--------------          {:20s}-------------|",
                self.code,self.code,
                self.optype, self.opcode, self.bw, self.offset,
-               self.destreg, self.destmode,self.destarg,
-               self.srcreg, self.srcmode, self.srcreg, self.to_string())
+               self.destreg, self.destmode,
+               self.srcreg, self.srcmode, self.to_string())
     }
 }
 

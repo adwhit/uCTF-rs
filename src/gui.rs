@@ -116,10 +116,10 @@ impl Gui {
                                             inst.memloc, inst.code,inst.code));
         mvwprintw(self.asmwin, 2,1, format!("OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}",
                                             inst.optype, inst.opcode, inst.bw, inst.offset));
-        mvwprintw(self.asmwin, 3,1, format!("DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x}",
-                                            inst.destreg, inst.Ad,inst.destarg));
-        mvwprintw(self.asmwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x}",
-                                           inst.sourcereg, inst.As, inst.sourcearg));
+        mvwprintw(self.asmwin, 3,1, format!("DestReg:  {:02u}  | DestMode:  {:11?} |", 
+                                            inst.destreg, inst.destmode));
+        mvwprintw(self.asmwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{:11?} |",
+                                           inst.srcreg, inst.srcmode));
         mvwprintw(self.asmwin, 5,1,format!("{:20s}", inst.to_string()));
         wrefresh(self.asmwin);
     }
