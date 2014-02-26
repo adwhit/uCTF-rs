@@ -102,7 +102,7 @@ impl Instruction {
         }
     }
 
-    fn to_string(&self) -> ~str {
+    pub fn to_string(&self) -> ~str {
         let op = self.namer();
         let byte = if self.bw { ~".B" } else { ~"" };
         let (a1, a2) = match self.optype {

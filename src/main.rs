@@ -3,13 +3,13 @@
 extern crate ncurses;
 
 use cpu::Cpu;
-pub use gui::mem;
 use std::io::File;
 use std::os::args;
 use nc = ncurses;
 
 mod cpu;
 mod gui;
+mod mem;
 
 fn main() {
     let argv = args();
@@ -23,14 +23,13 @@ fn main() {
         Err(e) => fail!(e)
     };
     let windows = gui::Gui::init();
-    
+    windows.render(cpu);
     loop {
         match nc::wgetch(nc::stdscr) {
             113 => break,
             115 => { 
                 cpu.step(); 
-                windows.draw_ram(cpu.ram, cpu.regs.arr[0]);
-                windows.render();
+                windows.render(cpu);
             }
             _ => ()
             }
