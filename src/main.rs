@@ -23,13 +23,13 @@ fn main() {
         Err(e) => fail!(e)
     };
     let windows = gui::Gui::init();
-    windows.render(cpu);
+    windows.render(&cpu);
     loop {
         match nc::wgetch(nc::stdscr) {
             113 => break,
             115 => { 
                 cpu.step(); 
-                windows.render(cpu);
+                windows.render(&cpu);
             }
             _ => ()
             }

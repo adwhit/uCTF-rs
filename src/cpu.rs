@@ -33,90 +33,6 @@ pub struct Instruction {
     destarg: u16
 }
 
-impl Instruction {
-    fn new() -> Instruction {
-        Instruction {
-            memloc: 0,
-            code: 0,
-            optype: NoArg,
-            opcode: 0,
-            offset: 0,
-            bw: false,
-            Ad: Direct,
-            As: Direct,
-            sourcereg: 0,
-            destreg: 0,
-            sourcearg: 0,
-            destarg: 0
-        }
-    }
-
-    fn namer(&self) -> ~str {
-        match self.optype {
-            NoArg => match self.opcode {
-                0b000 => ~"JNE",
-                0b001 => ~"JEQ",
-                0b010 => ~"JNC",
-                0b011 => ~"JC",
-                0b100 => ~"JN",
-                0b101 => ~"JGE",
-                0b110 => ~"JL",
-                0b111 => ~"JMP",
-                _ => fail!("Illegal opcode")
-                },
-            OneArg => match self.opcode {
-                0b000 => ~"RRC",
-                0b001 => ~"SWPB",
-                0b010 => ~"RRA",
-                0b011 => ~"SXT",
-                0b100 => ~"PUSH",
-                0b101 => ~"CALL",
-                0b110 => ~"RETI",
-                _ => fail!("Illegal opcode")
-                },
-            TwoArg => match self.opcode {
-                0b0100 => ~"MOV",
-                0b0101 => ~"ADD",
-                0b0110 => ~"ADDC",
-                0b0111 => ~"SUBC",
-                0b1000 => ~"SUB",
-                0b1001 => ~"CMP",
-                0b1010 => ~"DADD",
-                0b1011 => ~"BIT",
-                0b1100 => ~"BIC",
-                0b1101 => ~"BIS",
-                0b1110 => ~"XOR",
-                0b1111 => ~"AND",
-                _ => fail!("Illegal opcode")
-            }
-        }
-    }
-
-    pub fn to_string(&self) -> ~str {
-        let op = self.namer();
-        let byte = if self.bw { ~".B" } else { ~"" };
-        let (a1, a2) = match self.optype {
-            NoArg => (format!("\\#0x{:u}", self.offset), ~""),
-            OneArg => (optype_formatter(self.Ad, self.destreg, self.destarg), ~""),
-            TwoArg => (optype_formatter(self.As, self.sourcereg, self.sourcearg),
-                       optype_formatter(self.Ad, self.destreg, self.destarg))
-        };
-        format!("{:s}{:s} {:s} {:s}", op, byte, a1, a2)
-    }
-}
-
-fn optype_formatter(mode: AddressingMode, reg: u8, arg: u16) -> ~str {
-    match mode {
-        Direct => format!("r{:u}", reg),
-        Indirect => format!("@r{:u}", reg),
-        IndirectInc => format!("@r{:u}+", reg),
-        Absolute => format!("&0x{:x}", arg),
-        Indexed => format!("(0x{:04x})r{:u}+1", reg, arg),
-        _ => format!("{:u}", arg)
-    }
-}
-
-
 enum OpType {
     NoArg,
     OneArg,
@@ -156,8 +72,6 @@ fn parse_inst(code: u16) -> Instruction {
     }
 }
 
-
-
 fn twoarg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
     inst.code = code;
@@ -186,7 +100,7 @@ fn noarg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
     inst.code = code;
     inst.optype = NoArg;
-    inst.offset = (code & 0x3ff);
+    inst.offset = 2*sxt(code & 0x3ff);
     inst.opcode = ((code & 0x1c00) >> 10) as u8;
     inst
 }
@@ -235,7 +149,7 @@ impl Cpu {
                 self.ram.load(regval + arg, self.inst.bw)
             }
             Direct => regval,
-            Absolute => arg,
+            Absolute => self.ram.load(arg, self.inst.bw),
             ConstNeg1 => -1,
             Const0 => 0,
             Const1 => 1,
@@ -257,8 +171,10 @@ impl Cpu {
                 self.ram.store(regval, val, self.inst.bw)
             }
             Indexed => {
-                let offset = self.next_inst();
-                self.ram.store(regval + offset, val, self.inst.bw )
+                self.ram.store(regval + self.inst.destarg, val, self.inst.bw )
+            },
+            Absolute => {
+                self.ram.store(self.inst.destarg, val, self.inst.bw)
             },
             _ => fail!("Invalid addressing mode")
         }
@@ -338,7 +254,7 @@ impl Cpu {
         };
     }
 
-    fn getflag(self, flag: u16) -> bool {
+    fn getflag(&self, flag: u16) -> bool {
         if (self.regs.arr[2] & flag) == 0 {
             false
         } else {
@@ -447,24 +363,27 @@ fn SWPB(cpu: &mut Cpu, val: u16) {
 //TODO: implement
 fn RRA(cpu:&mut Cpu, val: u16) { fail!("Not implemented") }
 
+fn sxt(mut val: u16) -> u16 {
+    if (val & 0x0080) != 0 { val |= 0xff00 }
+    val
+}
+
 fn SXT(cpu:&mut Cpu, mut val: u16) {
-    if (val & 0x0080) != 0 { val |= 0xff00 } else { val &= 0x00ff }
-    cpu.store(val)
+    cpu.store(sxt(val))
 }
 
 fn PUSH(cpu:&mut Cpu, val: u16) {
-    let spval = cpu.resolve(1u8, Direct, cpu.inst.destarg);
-    cpu._store(2u8, Indirect, val);        //push 
-    cpu._store(2u8, Direct, spval - 2);    //decrement sp
+    cpu.regs.arr[1] -= 2;
+    cpu._store(1, Indirect, val);        //push 
 }
 
 //XXX: broken
 fn CALL(cpu:&mut Cpu,val: u16) {
+    //val is location of branch
     cpu.inst.destreg = 0;
     cpu.inst.Ad = Direct;
-    PUSH(cpu, val); // push pc to stack 
-    cpu.inst.offset = cpu.next_inst();
-    JMP(cpu); // branch
+    PUSH(cpu,cpu.regs.arr[0]); // push pc to stack 
+    cpu.regs.arr[0] = val
 }
 
 fn RETI(cpu:&mut Cpu, val: u16) {
@@ -483,7 +402,7 @@ fn SUBC(cpu:&mut Cpu, val: u16, inc: u16) {
     if C { cpu.set_and_store(val - inc + 1) } else { cpu.set_and_store(val - inc) }
 }
 
-fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.buf.push_str("Moving!\n"); cpu.store(inc) }
+fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.buf.push_str(format!("Moving! 0x{:x}\n", inc)); cpu.store(inc) }
 fn ADD(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val + inc) }
 fn SUB(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val - inc) }
 fn CMP(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(val - inc); }
@@ -509,6 +428,89 @@ impl fmt::Show for Cpu {
 
 {}
 ++++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst)
+    }
+}
+
+impl Instruction {
+    fn new() -> Instruction {
+        Instruction {
+            memloc: 0,
+            code: 0,
+            optype: NoArg,
+            opcode: 0,
+            offset: 0,
+            bw: false,
+            Ad: Direct,
+            As: Direct,
+            sourcereg: 0,
+            destreg: 0,
+            sourcearg: 0,
+            destarg: 0
+        }
+    }
+
+    fn namer(&self) -> ~str {
+        match self.optype {
+            NoArg => match self.opcode {
+                0b000 => ~"JNE",
+                0b001 => ~"JEQ",
+                0b010 => ~"JNC",
+                0b011 => ~"JC",
+                0b100 => ~"JN",
+                0b101 => ~"JGE",
+                0b110 => ~"JL",
+                0b111 => ~"JMP",
+                _ => fail!("Illegal opcode")
+                },
+            OneArg => match self.opcode {
+                0b000 => ~"RRC",
+                0b001 => ~"SWPB",
+                0b010 => ~"RRA",
+                0b011 => ~"SXT",
+                0b100 => ~"PUSH",
+                0b101 => ~"CALL",
+                0b110 => ~"RETI",
+                _ => fail!("Illegal opcode")
+                },
+            TwoArg => match self.opcode {
+                0b0100 => ~"MOV",
+                0b0101 => ~"ADD",
+                0b0110 => ~"ADDC",
+                0b0111 => ~"SUBC",
+                0b1000 => ~"SUB",
+                0b1001 => ~"CMP",
+                0b1010 => ~"DADD",
+                0b1011 => ~"BIT",
+                0b1100 => ~"BIC",
+                0b1101 => ~"BIS",
+                0b1110 => ~"XOR",
+                0b1111 => ~"AND",
+                _ => fail!("Illegal opcode")
+            }
+        }
+    }
+
+    pub fn to_string(&self) -> ~str {
+        let op = self.namer();
+        let byte = if self.bw { ~".B" } else { ~"" };
+        let (a1, a2) = match self.optype {
+            NoArg => (format!("\\#0x{:04x}", self.offset + 2), ~""),
+            OneArg => (optype_formatter(self.Ad, self.destreg, self.destarg), ~""),
+            TwoArg => (optype_formatter(self.As, self.sourcereg, self.sourcearg),
+                       optype_formatter(self.Ad, self.destreg, self.destarg))
+        };
+        format!("{:s}{:s} {:s} {:s}", op, byte, a1, a2)
+    }
+}
+
+fn optype_formatter(mode: AddressingMode, reg: u8, arg: u16) -> ~str {
+    match mode {
+        Direct => format!("r{:u}", reg),
+        Indirect => format!("@r{:u}", reg),
+        IndirectInc => format!("@r{:u}+", reg),
+        Absolute => format!("&0x{:x}", arg),
+        Indexed => format!("(0x{:x})r{:u}", arg, reg),
+        _ => format!("{:u}", arg)
     }
 }
 

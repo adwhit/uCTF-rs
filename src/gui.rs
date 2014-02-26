@@ -37,6 +37,7 @@ impl Gui {
         noecho();
         start_color();
         init_pair(1, COLOR_RED, COLOR_WHITE);
+        init_pair(2, COLOR_GREEN, COLOR_WHITE);
 
         let ramwin = newwin(RAMHEIGHT, RAMWIDTH, RAMY, RAMX);
         let regwin = newwin(REGHEIGHT, REGWIDTH, REGY, REGX);
@@ -62,7 +63,7 @@ impl Gui {
         }
     }
 
-    fn draw_ram(&self, r: mem::Ram, pc: u16) {
+    fn draw_ram(&self, r: mem::Ram, pc: u16, sp: u16) {
         let mut rowct = 1;
         for row in std::iter::range(0, r.arr.len()/16) {
             let mut nonzero = false;
@@ -80,6 +81,11 @@ impl Gui {
                         wattron(self.ramwin, COLOR_PAIR(1));
                         wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[row * 16 + col], r.arr[row * 16 + col + 1]));
                         wattroff(self.ramwin, COLOR_PAIR(1));
+                    } else if row * 16 + col == sp as uint  {
+                        // print in colour
+                        wattron(self.ramwin, COLOR_PAIR(2));
+                        wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[row * 16 + col], r.arr[row * 16 + col + 1]));
+                        wattroff(self.ramwin, COLOR_PAIR(2));
                     } else {
                         // normal print
                         wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[row * 16 + col], r.arr[row * 16 + col + 1]));
@@ -99,7 +105,8 @@ impl Gui {
             r.arr[8], r.arr[9], r.arr[10], r.arr[11]));
         mvwprintw(self.regwin,4,1, format!("R12 {:04x} R13 {:04x} R14 {:04x} R15 {:04x}",
             r.arr[12], r.arr[13], r.arr[14], r.arr[15]));
-        mvwprintw(self.regwin,5,14, inst.to_string());
+        mvwprintw(self.regwin,5,10, inst.to_string());
+        wprintw(self.regwin,"       ");
         wrefresh(self.regwin);
     }
 
@@ -118,13 +125,20 @@ impl Gui {
     }
 
     fn draw_debug(&self, s: &str) {
-        werase(self.dbgwin);
-        mvwprintw(self.dbgwin, 1, 1, s);
+        let mut lines : ~[&str] = s.clone().lines().collect();
+        let l = lines.len();
+        let mut ct = 1;
+        for (ix, &line) in lines.iter().enumerate() { 
+            if (ix as i32) > (l as i32) - DBGHEIGHT + 2 {
+                mvwprintw(self.dbgwin, ct, 1, line);
+                ct +=1 
+            }
+        }
         wrefresh(self.dbgwin);
     }
 
-    pub fn render(&self, cpu: cpu::Cpu) {
-        self.draw_ram(cpu.ram, cpu.inst.memloc);
+    pub fn render(&self, cpu: &cpu::Cpu) {
+        self.draw_ram(cpu.ram, cpu.inst.memloc, cpu.regs.arr[1]);
         self.draw_regs(cpu.regs, cpu.inst);
         self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);
