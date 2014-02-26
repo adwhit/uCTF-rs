@@ -4,8 +4,6 @@ use mem;
 use cpu;
 use std;
 
-
-
 static RAMHEIGHT : i32 = 50;
 static RAMWIDTH : i32 = 49;
 static RAMX : i32 = 1;
@@ -14,14 +12,14 @@ static REGHEIGHT : i32 = 7;
 static REGWIDTH : i32 = 37;
 static REGX : i32 = 52;
 static REGY : i32 = 1;
-static ASMHEIGHT : i32 = 50;
-static ASMWIDTH : i32 = 30;
+static ASMHEIGHT : i32 = 7;
+static ASMWIDTH : i32 = 70;
 static ASMX : i32 = 52;
-static ASMY : i32 = 1;
+static ASMY : i32 = 10;
 static DBGHEIGHT : i32 = 7;
-static DBGWIDTH : i32 = 70;
+static DBGWIDTH : i32 = 50;
 static DBGX : i32 = 52;
-static DBGY : i32 = 10;
+static DBGY : i32 = 20;
 
 pub struct Gui {
     ramwin : WINDOW,
@@ -52,6 +50,7 @@ impl Gui {
 
         mvwprintw(ramwin,0, 10, "RAM");
         mvwprintw(regwin,0, 10, "Registers");
+        mvwprintw(asmwin,0, 10, "Instructions");
 
         refresh();
 
@@ -91,38 +90,45 @@ impl Gui {
         wrefresh(self.ramwin);
     }
 
-    fn draw_regs(&self, r: mem::Regs, inst: &str) {
+    fn draw_regs(&self, r: mem::Regs, inst: cpu::Instruction) {
         mvwprintw(self.regwin,1,1, format!("PC  {:04x} SP  {:04x} SR  {:04x} CG  {:04x}",
-            r.arr[0], r.arr[1], r.arr[2], r.arr[3]));
+            inst.memloc, r.arr[1], r.arr[2], r.arr[3]));
         mvwprintw(self.regwin,2,1, format!("R04 {:04x} R05 {:04x} R06 {:04x} R07 {:04x}",
             r.arr[4], r.arr[5], r.arr[6], r.arr[7]));
         mvwprintw(self.regwin,3,1, format!("R08 {:04x} R09 {:04x} R10 {:04x} R11 {:04x}",
             r.arr[8], r.arr[9], r.arr[10], r.arr[11]));
         mvwprintw(self.regwin,4,1, format!("R12 {:04x} R13 {:04x} R14 {:04x} R15 {:04x}",
             r.arr[12], r.arr[13], r.arr[14], r.arr[15]));
-        mvwprintw(self.regwin,5,14, inst);
+        mvwprintw(self.regwin,5,14, inst.to_string());
         wrefresh(self.regwin);
     }
 
 
     fn draw_inst(&self, inst: cpu::Instruction) {
-        mvwprintw(self.dbgwin, 1,1, format!("0x{:04x}//{:016t}", inst.code,inst.code));
-        mvwprintw(self.dbgwin, 2,1, format!("OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}",
-                 inst.optype, inst.opcode, inst.bw, inst.offset));
-        mvwprintw(self.dbgwin, 3,1, format!("DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x}",
-                 inst.destreg, inst.Ad,inst.destarg));
-        mvwprintw(self.dbgwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x}",
-                 inst.sourcereg, inst.As, inst.sourcearg));
-        mvwprintw(self.dbgwin, 5,1,format!("{:20s}", inst.to_string()));
+        mvwprintw(self.asmwin, 1,1, format!("MemLoc:0x{:04x} | Value:  0x{:04x}//{:016t}", 
+                                            inst.memloc, inst.code,inst.code));
+        mvwprintw(self.asmwin, 2,1, format!("OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}",
+                                            inst.optype, inst.opcode, inst.bw, inst.offset));
+        mvwprintw(self.asmwin, 3,1, format!("DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x}",
+                                            inst.destreg, inst.Ad,inst.destarg));
+        mvwprintw(self.asmwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x}",
+                                           inst.sourcereg, inst.As, inst.sourcearg));
+        mvwprintw(self.asmwin, 5,1,format!("{:20s}", inst.to_string()));
+        wrefresh(self.asmwin);
+    }
+
+    fn draw_debug(&self, s: &str) {
+        werase(self.dbgwin);
+        mvwprintw(self.dbgwin, 1, 1, s);
         wrefresh(self.dbgwin);
     }
 
     pub fn render(&self, cpu: cpu::Cpu) {
-        self.draw_ram(cpu.ram, cpu.regs.arr[0]);
-        self.draw_regs(cpu.regs, cpu.inst.to_string());
+        self.draw_ram(cpu.ram, cpu.inst.memloc);
+        self.draw_regs(cpu.regs, cpu.inst);
         self.draw_inst(cpu.inst);
+        self.draw_debug(cpu.buf);
         mvprintw(LINES - 1, 0, "S to advance, Q to exit");
-        move(10, 10);
         refresh();
     }
 

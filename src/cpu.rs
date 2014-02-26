@@ -13,24 +13,13 @@ static OVERF : u16 = 1 << 8;
 pub struct Cpu {
     regs: Regs,
     ram: Ram,
-    inst: Instruction
-}
-
-impl fmt::Show for Cpu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf,
-"******************* CPU *******************
-{}
-
-{}
-
-{}
-++++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst)
-    }
+    inst: Instruction,
+    buf: ~str
 }
 
 pub struct Instruction {
     //TODO - introduce option types
+    memloc: u16,
     code: u16,
     optype: OpType,
     opcode: u8,
@@ -47,6 +36,7 @@ pub struct Instruction {
 impl Instruction {
     fn new() -> Instruction {
         Instruction {
+            memloc: 0,
             code: 0,
             optype: NoArg,
             opcode: 0,
@@ -126,23 +116,6 @@ fn optype_formatter(mode: AddressingMode, reg: u8, arg: u16) -> ~str {
     }
 }
 
-
-
-
-impl fmt::Show for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, 
-"|-------- Instruction: 0x{:04x}//{:016t}-----------|
-| OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}  | 
-| DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x} |
-| SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x} |
-|--------------          {:20s}-------------|",
-               self.code,self.code,
-               self.optype, self.opcode, self.bw, self.offset,
-               self.destreg, self.Ad,self.destarg,
-               self.sourcereg, self.As, self.sourcearg, self.to_string())
-    }
-}
 
 enum OpType {
     NoArg,
@@ -402,7 +375,9 @@ impl Cpu {
 
     fn prepare_next(&mut self) {
         let code = self.next_inst();
+        let pc = self.regs.arr[0];
         self.inst = parse_inst(code);
+        self.inst.memloc = pc - 2;
         self.get_args();
     }
 
@@ -425,7 +400,8 @@ impl Cpu {
         Cpu {
             regs: Regs::new(),
             ram: Ram::new(),
-            inst: Instruction::new()
+            inst: Instruction::new(),
+            buf: ~""
         }
     }
 
@@ -507,7 +483,7 @@ fn SUBC(cpu:&mut Cpu, val: u16, inc: u16) {
     if C { cpu.set_and_store(val - inc + 1) } else { cpu.set_and_store(val - inc) }
 }
 
-fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(inc) }
+fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.buf.push_str("Moving!\n"); cpu.store(inc) }
 fn ADD(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val + inc) }
 fn SUB(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val - inc) }
 fn CMP(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(val - inc); }
@@ -517,6 +493,39 @@ fn BIS(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val | inc) }
 fn XOR(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val ^ inc) }
 fn AND(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val & inc) }
 fn DADD(cpu:&mut Cpu, val: u16, inc: u16) { fail!("Not implemented") }
+
+pub fn swap(i: u16) -> u16 {
+    let ret = i >> 8;
+    ret | i << 8
+}
+
+impl fmt::Show for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf,
+"******************* CPU *******************
+{}
+
+{}
+
+{}
+++++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst)
+    }
+}
+
+impl fmt::Show for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, 
+"|-------- Instruction: 0x{:04x}//{:016t}-----------|
+| OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}  | 
+| DestReg:  {:02u}  | DestMode:  {:11?} | DestArg:  {:04x} |
+| SourceReg:{:02u}  | SourceMode:{:11?} | SourceArg:{:04x} |
+|--------------          {:20s}-------------|",
+               self.code,self.code,
+               self.optype, self.opcode, self.bw, self.offset,
+               self.destreg, self.Ad,self.destarg,
+               self.sourcereg, self.As, self.sourcearg, self.to_string())
+    }
+}
 
 #[test]
 fn parse_tests() {
