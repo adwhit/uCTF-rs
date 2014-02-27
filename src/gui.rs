@@ -78,7 +78,7 @@ impl Gui {
             }
             match (printlast, zero) {
                 (true,true) => { 
-                    mvwprintw(self.ramwin, rowct, 1, "               ***");
+                    mvwprintw(self.ramwin, rowct, 1, "                 ***                          ");
                     printlast = false;
                     rowct += 1;
                     continue 'rows
@@ -86,8 +86,6 @@ impl Gui {
                 (true, false) => (),
                 (false, true) => {continue 'rows}
                 (false,false) => { 
-                    mvwprintw(self.ramwin, rowct, 1, "               ***");
-                    rowct += 1;
                     printlast = true;
                 }
             }
