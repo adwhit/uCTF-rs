@@ -146,4 +146,11 @@ impl Gui {
         refresh();
     }
 
+    pub fn getstring(&self) -> ~str {
+        let mut s = ~"";
+        echo();
+        wgetstr(self.dbgwin, &mut s);
+        noecho();
+        s
+    }
 }
