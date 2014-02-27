@@ -15,6 +15,7 @@ pub struct Cpu {
     regs: Regs,
     ram: Ram,
     inst: Instruction,
+    status: Status,
     buf: ~str
 }
 
@@ -29,13 +30,21 @@ pub struct Instruction {
     srcreg: u8,
     destreg: u8,
     srcmode: AddressingMode,
-    destmode: AddressingMode,
+    destmode: AddressingMode
 }
 
 enum OpType {
     NoArg,
     OneArg,
-    TwoArg
+    TwoArg,
+    Interrupt
+}
+
+pub enum Status {
+    GetInput(~str),
+    Off,
+    Success,
+    Normal
 }
 
 enum AddressingMode {
@@ -61,25 +70,30 @@ impl fmt::Show for AddressingMode {
     }
 }
 
-fn get_optype(code: u16) -> OpType {
-    match code >> 13 {
-        0 => OneArg,
-        1 => NoArg,
-        _ => TwoArg
+fn get_optype(code: u16, pc: u16) -> OpType {
+    match (code >> 13, pc) {
+        (_,0x10) => Interrupt,
+        (0,_) => OneArg,
+        (1,_) => NoArg,
+        (_,_) => TwoArg
     }
 }
 
 //splitters
 
-fn parse_inst(code: u16) -> Instruction {
-    let optype = get_optype(code);
+fn parse_inst(code: u16, pc: u16) -> Instruction {
+    let optype = get_optype(code, pc);
     match optype {
         NoArg => noarg_split(code),
         OneArg => onearg_split(code),
-        TwoArg => twoarg_split(code)
+        TwoArg => twoarg_split(code),
+        Interrupt => { 
+            let mut i = twoarg_split(0x4130);
+            i.optype = Interrupt;
+            i
+        }
     }
 }
-
 
 fn twoarg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
@@ -115,7 +129,7 @@ impl Cpu {
 
     fn get_addressing_modes(&mut self) {
         match self.inst.optype {
-            TwoArg => {
+            TwoArg | Interrupt => {
                 self.inst.srcmode = self.modes_(self.inst.srcreg,((self.inst.code & 0x30) >> 4) as u8);
                 self.inst.destmode = self.modes_(self.inst.destreg,((self.inst.code & 0x80) >> 7) as u8);
             },
@@ -128,6 +142,11 @@ impl Cpu {
 
     fn modes_(&mut self, reg: u8, modecode: u8) -> AddressingMode {
         match (reg, modecode) {
+            (0,0b00) => Direct,
+            (0,0b01) => Indexed(self.next_inst()),
+            (0,0b10) => Indirect,
+            (0,0b11) => Const(self.next_inst()), 
+            (2,0b00) => Direct,
             (2,0b01) => Absolute(self.next_inst()),
             (2,0b10) => Const(4),
             (2,0b11) => Const(8),
@@ -135,16 +154,13 @@ impl Cpu {
             (3,0b01) => Const(1),
             (3,0b10) => Const(2),
             (3,0b11) => Const(-1),
-            (0,0b00) => Direct,
-            (0,0b01) => Indexed(self.next_inst()),
-            (0,0b10) => Indirect,
-            (0,0b11) => Const(self.next_inst()), 
             (0..15,0b00) => Direct,
             (0..15,0b01) => Indexed(self.next_inst()),
             (0..15,0b10) => Indirect,
             (0..15,0b11) => IndirectInc,
             (_,_) => {
                 ncurses::endwin();
+                println!("{}", self.inst);
                 fail!(format!("Invalid register/mode combo: Reg {} Mode {}", reg, modecode))
             }
         }
@@ -192,107 +208,44 @@ impl Cpu {
         }
     }
 
+    //wrapper
     fn store(&mut self, val: u16) {
         self._store(self.inst.destreg, self.inst.destmode, val)
     }
 
-    fn set_and_store(&mut self, val: u16) {
-        self.setflags(val);
-        self.store(val);
-    }
-    
+    //execution stage
     fn exec(&mut self) {
-        match self.inst.optype {
-            NoArg => { 
-                let f = match self.inst.opcode {
-                    0b000 => JNE,
-                    0b001 => JEQ,
-                    0b010 => JNC,
-                    0b011 => JC,
-                    0b100 => JN,
-                    0b101 => JGE,
-                    0b110 => JL,
-                    0b111 => JMP,
-                    _ => fail!("Illegal opcode")
-                };
-                self.noarg_dispatch(f)
-            }
-            OneArg => {
-                let f = match self.inst.opcode {
-                    0b000 => RRC,
-                    0b001 => SWPB,
-                    0b010 => RRA,
-                    0b011 => SXT,
-                    0b100 => PUSH,
-                    0b101 => CALL,
-                    0b110 => RETI,
-                    _ => fail!("Illegal opcode")
-                };
-                self.onearg_dispatch(f)
-            }
-            TwoArg => {
-                let f = match self.inst.opcode {
-                    0b0100 => MOV,
-                    0b0101 => ADD,
-                    0b0110 => ADDC,
-                    0b0111 => SUBC,
-                    0b1000 => SUB,
-                    0b1001 => CMP,
-                    0b1010 => DADD,
-                    0b1011 => BIT,
-                    0b1100 => BIC,
-                    0b1101 => BIS,
-                    0b1110 => XOR,
-                    0b1111 => AND,
-                    _ => fail!("Illegal opcode")
-                };
-                self.twoarg_dispatch(f)
-            }
+        match (self.inst.optype,self.inst.opcode) {
+            (NoArg,0b000) => self.noarg_dispatch(JNE),
+            (NoArg,0b001) => self.noarg_dispatch(JEQ),
+            (NoArg,0b010) => self.noarg_dispatch(JNC),
+            (NoArg,0b011) => self.noarg_dispatch(JC),
+            (NoArg,0b100) => self.noarg_dispatch(JN),
+            (NoArg,0b101) => self.noarg_dispatch(JGE),
+            (NoArg,0b110) => self.noarg_dispatch(JL),
+            (NoArg,0b111) => self.noarg_dispatch(JMP),
+            (OneArg,0b000) => self.onearg_dispatch(RRC),
+            (OneArg,0b001) => self.onearg_dispatch(SWPB),
+            (OneArg,0b010) => self.onearg_dispatch(RRA),
+            (OneArg,0b011) => self.onearg_dispatch(SXT),
+            (OneArg,0b100) => self.onearg_dispatch(PUSH),
+            (OneArg,0b101) => self.onearg_dispatch(CALL),
+            (OneArg,0b110) => self.onearg_dispatch(RETI),
+            (TwoArg,0b0100) => self.twoarg_dispatch(MOV),
+            (TwoArg,0b0101) => self.twoarg_dispatch(ADD),
+            (TwoArg,0b0110) => self.twoarg_dispatch(ADDC),
+            (TwoArg,0b0111) => self.twoarg_dispatch(SUBC),
+            (TwoArg,0b1000) => self.twoarg_dispatch(SUB),
+            (TwoArg,0b1001) => self.twoarg_dispatch(CMP),
+            (TwoArg,0b1010) => self.twoarg_dispatch(DADD),
+            (TwoArg,0b1011) => self.twoarg_dispatch(BIT),
+            (TwoArg,0b1100) => self.twoarg_dispatch(BIC),
+            (TwoArg,0b1101) => self.twoarg_dispatch(BIS),
+            (TwoArg,0b1110) => self.twoarg_dispatch(XOR),
+            (TwoArg,0b1111) => self.twoarg_dispatch(AND),
+            (Interrupt,_) => self.handle_interrupt(),
+            _ => fail!("Illegal opcode")
         }
-    }
-
-    // utility functions
-    fn getflag(&self, flag: u16) -> bool {
-        if (self.regs.arr[2] & flag) == 0 {
-            false
-        } else {
-            true
-        }
-    }
-
-    fn set_flag(&mut self, flag: u16, on: bool ) {
-        if on {
-            self.regs.arr[2] = self.regs.arr[2] | flag
-        } else {
-            self.regs.arr[2] = self.regs.arr[2] & !flag
-        }
-    }
-
-    fn setflags(&mut self, val: u16) {
-        self.set_flag(ZEROF, val == 0);
-        self.set_flag(NEGF, val & 0x8000 != 0);
-    }
-
-    // load instruction from ram and increment pc
-    fn next_inst(&mut self) -> u16 {
-        let inst = self.ram.loadw(self.regs.arr[0]);
-        self.regs.arr[0] += 2;
-        assert!(self.regs.arr[0] % 2 == 0);
-        inst
-    }
-
-    // load and execute one instruction
-    pub fn step(&mut self) { 
-        self.exec();
-        self.prepare_next();
-    }
-
-    fn prepare_next(&mut self) {
-        let code = self.next_inst();
-        let pc = self.regs.arr[0];
-        self.inst = parse_inst(code);
-        self.get_addressing_modes();
-        self.inst.memloc = pc - 2;
     }
 
     fn noarg_dispatch(&mut self, f: fn(&Cpu) -> bool) {
@@ -310,24 +263,18 @@ impl Cpu {
         f(self, val, inc)
     }
 
-    pub fn new() -> Cpu { 
-        Cpu {
-            regs: Regs::new(),
-            ram: Ram::new(),
-            inst: Instruction::new(),
-            buf: ~""
+    fn handle_interrupt(&mut self) {
+        match self.regs.arr[2] {            //sr register
+            0x8000 => self.buf.push_char(self.ram.arr[self.regs.arr[1]+8] as char),
+            0x8200 => { self.status = GetInput(~"") }                     //getsn 
+            _ => ()
         }
+        self.twoarg_dispatch(MOV);
     }
 
 
-    pub fn init(image: &[u8]) -> Cpu {
-        let mut cpu = Cpu::new();
-        cpu.ram.loadimage(image);
-        cpu.regs.arr[0] = 0x4400;
-        cpu.prepare_next();
-        cpu
-    }
 }
+
 
 //Instructions
 
@@ -400,20 +347,103 @@ fn SUBC(cpu:&mut Cpu, val: u16, inc: u16) {
     if C { cpu.set_and_store(val - inc + 1) } else { cpu.set_and_store(val - inc) }
 }
 
-fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.buf.push_str(format!("Moving! 0x{:x}\n", inc)); cpu.store(inc) }
+fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(inc) }
 fn ADD(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val + inc) }
 fn SUB(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val - inc) }
-fn CMP(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(val - inc); }
-fn BIT(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setflags(inc & val); } 
+fn CMP(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setzn(val - inc); }
+fn BIT(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setzn(inc & val); } 
 fn BIC(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val & !inc) }
 fn BIS(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val | inc) }
 fn XOR(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val ^ inc) }
 fn AND(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val & inc) }
 fn DADD(cpu:&mut Cpu, val: u16, inc: u16) { fail!("Not implemented") }
 
-pub fn swap(i: u16) -> u16 {
-    let ret = i >> 8;
-    ret | i << 8
+impl Cpu {
+
+    // utility functions
+    fn getflag(&self, flag: u16) -> bool {
+        if (self.regs.arr[2] & flag) == 0 {
+            false
+        } else {
+            true
+        }
+    }
+
+    fn set_flag(&mut self, flag: u16, on: bool ) {
+        if on {
+            self.regs.arr[2] = self.regs.arr[2] | flag
+        } else {
+            self.regs.arr[2] = self.regs.arr[2] & !flag
+        }
+    }
+
+    pub fn swap(i: u16) -> u16 {
+        let ret = i >> 8;
+        ret | i << 8
+    }
+
+    fn setzn(&mut self, val: u16) {
+        self.set_flag(ZEROF, val == 0);
+        self.set_flag(NEGF, val & 0x8000 != 0);
+    }
+
+    fn set_and_store(&mut self, val: u16) {
+        self.setzn(val);
+        self.store(val);
+    }
+
+    // load instruction from ram and increment pc
+    fn next_inst(&mut self) -> u16 {
+        let inst = self.ram.loadw(self.regs.arr[0]);
+        self.regs.arr[0] += 2;
+        if !self.regs.arr[0] % 2 == 0 {
+            ncurses::endwin();
+            println!("{}", self.inst);
+            fail!(format!("Invalid address {}", self.regs.arr[0]))
+        }
+        inst
+    }
+
+    // load and execute one instruction
+    pub fn step(&mut self) { 
+        match self.status {
+            Normal => {
+                self.exec();
+                self.prepare_next();
+                if self.regs.arr[2] & 0x80 != 0 { self.status = Off } // CPU OFF
+            },
+            Off | Success => (),
+            GetInput(s) => { self.status = Normal }
+        }
+    }
+
+    fn prepare_next(&mut self) {
+        let pc = self.regs.arr[0];
+        let code = self.next_inst();
+        self.inst = parse_inst(code, pc);
+        self.inst.memloc = pc;
+        self.get_addressing_modes();
+    }
+
+
+    pub fn new() -> Cpu { 
+        Cpu {
+            regs: Regs::new(),
+            ram: Ram::new(),
+            inst: Instruction::new(),
+            status: Normal,
+            buf: ~""
+        }
+    }
+
+
+    pub fn init(image: &[u8]) -> Cpu {
+        let mut cpu = Cpu::new();
+        cpu.ram.loadimage(image);
+        cpu.regs.arr[0] = 0x4400;
+        cpu.prepare_next();
+        cpu
+    }
 }
 
 impl fmt::Show for Cpu {
@@ -425,7 +455,9 @@ impl fmt::Show for Cpu {
 {}
 
 {}
-++++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst)
+
+{}
+++++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst, self.buf)
     }
 }
 
@@ -446,43 +478,36 @@ impl Instruction {
     }
 
     fn namer(&self) -> ~str {
-        match self.optype {
-            NoArg => match self.opcode {
-                0b000 => ~"JNE",
-                0b001 => ~"JEQ",
-                0b010 => ~"JNC",
-                0b011 => ~"JC",
-                0b100 => ~"JN",
-                0b101 => ~"JGE",
-                0b110 => ~"JL",
-                0b111 => ~"JMP",
-                _ => fail!("Illegal opcode")
-                },
-            OneArg => match self.opcode {
-                0b000 => ~"RRC",
-                0b001 => ~"SWPB",
-                0b010 => ~"RRA",
-                0b011 => ~"SXT",
-                0b100 => ~"PUSH",
-                0b101 => ~"CALL",
-                0b110 => ~"RETI",
-                _ => fail!("Illegal opcode")
-                },
-            TwoArg => match self.opcode {
-                0b0100 => ~"MOV",
-                0b0101 => ~"ADD",
-                0b0110 => ~"ADDC",
-                0b0111 => ~"SUBC",
-                0b1000 => ~"SUB",
-                0b1001 => ~"CMP",
-                0b1010 => ~"DADD",
-                0b1011 => ~"BIT",
-                0b1100 => ~"BIC",
-                0b1101 => ~"BIS",
-                0b1110 => ~"XOR",
-                0b1111 => ~"AND",
-                _ => fail!("Illegal opcode")
-            }
+        match (self.optype, self.opcode) {
+            (NoArg,0b000) => ~"JNE",
+            (NoArg,0b001) => ~"JEQ",
+            (NoArg,0b010) => ~"JNC",
+            (NoArg,0b011) => ~"JC",
+            (NoArg,0b100) => ~"JN",
+            (NoArg,0b101) => ~"JGE",
+            (NoArg,0b110) => ~"JL",
+            (NoArg,0b111) => ~"JMP",
+            (OneArg,0b000) => ~"RRC",
+            (OneArg,0b001) => ~"SWPB",
+            (OneArg,0b010) => ~"RRA",
+            (OneArg,0b011) => ~"SXT",
+            (OneArg,0b100) => ~"PUSH",
+            (OneArg,0b101) => ~"CALL",
+            (OneArg,0b110) => ~"RETI",
+            (TwoArg,0b0100) => ~"MOV",
+            (TwoArg,0b0101) => ~"ADD",
+            (TwoArg,0b0110) => ~"ADDC",
+            (TwoArg,0b0111) => ~"SUBC",
+            (TwoArg,0b1000) => ~"SUB",
+            (TwoArg,0b1001) => ~"CMP",
+            (TwoArg,0b1010) => ~"DADD",
+            (TwoArg,0b1011) => ~"BIT",
+            (TwoArg,0b1100) => ~"BIC",
+            (TwoArg,0b1101) => ~"BIS",
+            (TwoArg,0b1110) => ~"XOR",
+            (TwoArg,0b1111) => ~"AND",
+            (Interrupt,_) => ~"INT",
+            (_,_) => unreachable!()
         }
     }
 
@@ -493,7 +518,9 @@ impl Instruction {
             NoArg => (format!("\\#0x{:04x}", self.offset + 2), ~""),
             OneArg => (optype_formatter(self.destmode, self.destreg), ~""),
             TwoArg => (optype_formatter(self.srcmode, self.srcreg),
-                       optype_formatter(self.destmode, self.destreg))
+                       optype_formatter(self.destmode, self.destreg)),
+            Interrupt => (~"",~"")
+
         };
         format!("{:s}{:s} {:s} {:s}", op, byte, a1, a2)
     }
@@ -515,50 +542,12 @@ impl fmt::Show for Instruction {
         write!(f.buf, 
 "|-------- Instruction: 0x{:04x}//{:016t}-----------|
 | OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}  | 
-| DestReg:  {:02u}  | DestMode:  {:11?} |
+| DestReg:  {:02u}  | DestMode:  {:11?} | MemLoc: {:04x}
 | SourceReg:{:02u}  | SourceMode:{:11?} |
 |--------------          {:20s}-------------|",
                self.code,self.code,
                self.optype, self.opcode, self.bw, self.offset,
-               self.destreg, self.destmode,
+               self.destreg, self.destmode, self.memloc,
                self.srcreg, self.srcmode, self.to_string())
     }
-}
-
-#[test]
-fn parse_tests() {
-    let instrs: ~[u16] =         ~[0x4031,0x37ff,0x118b]; //MOV, JGE, SXT
-    let optype: ~[OpType]=       ~[TwoArg, NoArg, OneArg];
-    let opcodes: ~[u8]=          ~[0b0100, 0b101, 0b011];
-    let sourceregs: ~[u8]=       ~[0, 0, 0];
-    let Ads: ~[AddressingMode] = ~[Direct, Direct, Direct];
-    let bws: ~[bool] =           ~[false, false, false];
-    let Ass: ~[AddressingMode] = ~[IndirectInc, Direct, Direct];
-    let destregs: ~[u8] =        ~[0b0001, 0, 11];
-    for (ix, &code) in instrs.iter().enumerate() {
-        let inst = parse_inst(code);
-        //println!("{}", inst);
-        assert_eq!(inst.opcode, opcodes[ix]);
-        assert_eq!(inst.optype as u8, optype[ix] as u8);
-        assert_eq!(inst.srcreg, sourceregs[ix]);
-        assert_eq!(inst.destmode as u8, Ads[ix] as u8);
-        assert_eq!(inst.bw, bws[ix]);
-        assert_eq!(inst.srcmode as u8, Ass[ix] as u8);
-        assert_eq!(inst.destreg, destregs[ix]);
-    }
-}
-
-#[test]
-fn cpu_test() {
-    let mut cpu = Cpu::new();
-    let v: ~[u8] = ~[0x31,0x40,0x00,0x44,0x15,0x42,0x5c,0x01,
-          0x75,0xf3,0x35,0xd0,0x08,0x5a];
-    for (ix, &val) in v.iter().enumerate() {
-        cpu.ram.arr[ix] = val
-    }
-    cpu.prepare_next();
-    println!("{}\n", cpu);
-    cpu.step();
-    println!("{}\n", cpu);
-
 }

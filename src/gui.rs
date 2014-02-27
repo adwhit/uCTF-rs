@@ -16,7 +16,7 @@ static ASMHEIGHT : i32 = 7;
 static ASMWIDTH : i32 = 70;
 static ASMX : i32 = 52;
 static ASMY : i32 = 10;
-static DBGHEIGHT : i32 = 7;
+static DBGHEIGHT : i32 = 10;
 static DBGWIDTH : i32 = 50;
 static DBGX : i32 = 52;
 static DBGY : i32 = 20;
@@ -129,7 +129,7 @@ impl Gui {
         let l = lines.len();
         let mut ct = 1;
         for (ix, &line) in lines.iter().enumerate() { 
-            if (ix as i32) > (l as i32) - DBGHEIGHT + 2 {
+            if (ix as i32) > (l as i32) - DBGHEIGHT + 1 {
                 mvwprintw(self.dbgwin, ct, 1, line);
                 ct +=1 
             }
@@ -142,7 +142,8 @@ impl Gui {
         self.draw_regs(cpu.regs, cpu.inst);
         self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);
-        mvprintw(LINES - 1, 0, "s to advance, c to continue, q to exit");
+        mvprintw(LINES - 2, 0, "s: step, c: continue, f: fast-forward, b: add breakpoint, q: quit");
+        move(LINES - 3, 10); // to allow println! usage
         refresh();
     }
 
