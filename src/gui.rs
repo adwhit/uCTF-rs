@@ -70,12 +70,27 @@ impl Gui {
 
     fn draw_ram(&self, r: mem::Ram, regs: mem::Regs) {
         let mut rowct = 1;
-        for row in std::iter::range(0, r.arr.len()/16) {
-            let mut nonzero = false;
+        let mut printlast = false;
+        'rows: for row in std::iter::range(0, r.arr.len()/16) {
+            let mut zero = true;
             for col in range(0, 16u) {
-                if r.arr[row * 16 + col] != 0 { nonzero = true } 
+                if r.arr[row * 16 + col] != 0 { zero = false } 
             }
-            if !nonzero { continue };
+            match (printlast, zero) {
+                (true,true) => { 
+                    mvwprintw(self.ramwin, rowct, 1, "               ***");
+                    printlast = false;
+                    rowct += 1;
+                    continue 'rows
+                },
+                (true, false) => (),
+                (false, true) => {continue 'rows}
+                (false,false) => { 
+                    mvwprintw(self.ramwin, rowct, 1, "               ***");
+                    rowct += 1;
+                    printlast = true;
+                }
+            }
             wmove(self.ramwin, rowct, 1); rowct += 1;
             wprintw(self.ramwin, format!("{:04x}:  ", row * 16));
             'cols : for col in range(0u, 16u) { 
