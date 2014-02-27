@@ -13,10 +13,7 @@ mod mem;
 
 fn main() {
     let argv = args();
-    let fpath = match argv {
-        [_,v, ..] => v,
-        _ => fail!("Please supply file argument")
-    };
+    let fpath = argv[1];
     let memval = File::open(&Path::new(fpath)).read_to_end();
     let mut cpu = match memval {
         Ok(v) => Cpu::init(v),
@@ -26,11 +23,15 @@ fn main() {
     windows.render(&cpu);
     loop {
         match nc::wgetch(nc::stdscr) {
-            113 => break,
-            115 => { 
+            115 => {                //s
                 cpu.step(); 
                 windows.render(&cpu);
-            }
+            },
+            99 => loop {            //c
+                cpu.step(); 
+                windows.render(&cpu);
+            },
+            113 => break,           //q
             _ => ()
             }
     }

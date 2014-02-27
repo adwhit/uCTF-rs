@@ -1,5 +1,6 @@
 use mem::{MemUtil, Ram, Regs};
 use std::fmt;
+use ncurses;
 
 mod mem;
 
@@ -44,6 +45,20 @@ enum AddressingMode {
     IndirectInc,
     Absolute(u16),
     Const(u16)
+}
+
+impl fmt::Show for AddressingMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match *self{
+            Direct => ~"Direct",
+            Indirect => ~"Indirect",
+            IndirectInc => ~"IndirectInc",
+            Indexed(offset) => format!("Indexed(0x{:x})",offset),
+            Absolute(address) => format!("Absolute(0x{:x})",address),
+            Const(n) => format!("Const(0x{:x})",n)
+        };
+        write!(f.buf,"{}", s)
+    }
 }
 
 fn get_optype(code: u16) -> OpType {
@@ -99,13 +114,20 @@ fn noarg_split(code: u16) -> Instruction {
 impl Cpu {
 
     fn get_addressing_modes(&mut self) {
-        self.inst.srcmode = self.modes_(((self.inst.code & 0x30) >> 4) as u8, self.inst.srcreg);
-        self.inst.destmode = self.modes_(((self.inst.code & 0x80) >> 7) as u8, self.inst.destreg);
+        match self.inst.optype {
+            TwoArg => {
+                self.inst.srcmode = self.modes_(self.inst.srcreg,((self.inst.code & 0x30) >> 4) as u8);
+                self.inst.destmode = self.modes_(self.inst.destreg,((self.inst.code & 0x80) >> 7) as u8);
+            },
+            OneArg => {
+                self.inst.destmode = self.modes_(self.inst.destreg,((self.inst.code & 0x30) >> 4) as u8);
+            }
+            NoArg => ()
+        }
     }
 
-    fn modes_(&mut self, modecode: u8, reg: u8) -> AddressingMode {
+    fn modes_(&mut self, reg: u8, modecode: u8) -> AddressingMode {
         match (reg, modecode) {
-            (2,0b00) => Direct,
             (2,0b01) => Absolute(self.next_inst()),
             (2,0b10) => Const(4),
             (2,0b11) => Const(8),
@@ -113,12 +135,18 @@ impl Cpu {
             (3,0b01) => Const(1),
             (3,0b10) => Const(2),
             (3,0b11) => Const(-1),
-            (0,0b11) => Const(self.next_inst()),
+            (0,0b00) => Direct,
+            (0,0b01) => Indexed(self.next_inst()),
+            (0,0b10) => Indirect,
+            (0,0b11) => Const(self.next_inst()), 
             (0..15,0b00) => Direct,
             (0..15,0b01) => Indexed(self.next_inst()),
             (0..15,0b10) => Indirect,
-            (1..15,0b11) => IndirectInc,
-            (_,_) => fail!("Invalid register")
+            (0..15,0b11) => IndirectInc,
+            (_,_) => {
+                ncurses::endwin();
+                fail!(format!("Invalid register/mode combo: Reg {} Mode {}", reg, modecode))
+            }
         }
     }
 
@@ -263,6 +291,7 @@ impl Cpu {
         let code = self.next_inst();
         let pc = self.regs.arr[0];
         self.inst = parse_inst(code);
+        self.get_addressing_modes();
         self.inst.memloc = pc - 2;
     }
 

@@ -116,9 +116,9 @@ impl Gui {
                                             inst.memloc, inst.code,inst.code));
         mvwprintw(self.asmwin, 2,1, format!("OpType:{:06?} | Opcode:{:04t} | B/W:{:05b} | Offset: {:04x}",
                                             inst.optype, inst.opcode, inst.bw, inst.offset));
-        mvwprintw(self.asmwin, 3,1, format!("DestReg:  {:02u}  | DestMode:  {:11?} |", 
+        mvwprintw(self.asmwin, 3,1, format!("DestReg:  {:02u}  | DestMode:  {} ", 
                                             inst.destreg, inst.destmode));
-        mvwprintw(self.asmwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{:11?} |",
+        mvwprintw(self.asmwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{} ",
                                            inst.srcreg, inst.srcmode));
         mvwprintw(self.asmwin, 5,1,format!("{:20s}", inst.to_string()));
         wrefresh(self.asmwin);
@@ -142,7 +142,7 @@ impl Gui {
         self.draw_regs(cpu.regs, cpu.inst);
         self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);
-        mvprintw(LINES - 1, 0, "S to advance, Q to exit");
+        mvprintw(LINES - 1, 0, "s to advance, c to continue, q to exit");
         refresh();
     }
 
