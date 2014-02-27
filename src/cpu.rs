@@ -265,14 +265,15 @@ impl Cpu {
 
     fn handle_interrupt(&mut self) {
         match self.regs.arr[2] {            //sr register
-            0x8000 => self.buf.push_char(self.ram.arr[self.regs.arr[1]+8] as char),
-            0x8200 => { self.status = GetInput(~"") }                     //getsn 
+            0x8000 => {
+                self.buf.push_char(self.ram.arr[self.regs.arr[1]+8] as char);
+                self.twoarg_dispatch(MOV)
+            }
+            0x8200 => { self.status = GetInput(~"") },                     //getsn 
+            0xff00 => { self.status = Success }
             _ => ()
         }
-        self.twoarg_dispatch(MOV);
     }
-
-
 }
 
 
@@ -406,6 +407,7 @@ impl Cpu {
 
     // load and execute one instruction
     pub fn step(&mut self) { 
+        let mut string = ~"";
         match self.status {
             Normal => {
                 self.exec();
@@ -413,7 +415,24 @@ impl Cpu {
                 if self.regs.arr[2] & 0x80 != 0 { self.status = Off } // CPU OFF
             },
             Off | Success => (),
-            GetInput(s) => { self.status = Normal }
+            GetInput(ref s) => {string = s.clone()}
+        }
+        if string != ~"" { 
+            self.getsn(string);
+            self.status = Normal;
+            self.inst =  parse_inst(0x4130,0);
+            self.get_addressing_modes();
+        }
+    }
+
+    fn getsn(&mut self, s: ~str) {
+        println!("{}", s);
+        let bytes: ~[u8] = s.clone().bytes().collect();
+        let sp = self.regs.arr[1];
+        let mut getn = self.ram.arr[sp + 10];
+        if (bytes.len() as u8) < getn { getn = bytes.len() as u8 }
+        for i in range(0, getn) {
+            self.ram.arr[sp + 16 + (i as u16)] =  bytes[i];
         }
     }
 
@@ -421,8 +440,8 @@ impl Cpu {
         let pc = self.regs.arr[0];
         let code = self.next_inst();
         self.inst = parse_inst(code, pc);
-        self.inst.memloc = pc;
         self.get_addressing_modes();
+        self.inst.memloc = pc;
     }
 
 

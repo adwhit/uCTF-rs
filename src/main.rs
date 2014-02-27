@@ -33,7 +33,7 @@ fn main() {
                         windows.render(&cpu);
                     },
                     &Success => {
-                        cpu.buf.push_str("Success! Door unlocked"); 
+                        cpu.buf.push_str("Success! Door unlocked\n"); 
                         windows.render(&cpu);
                     },
                     &GetInput(_) => { cpu.status = GetInput(windows.getstring()) },

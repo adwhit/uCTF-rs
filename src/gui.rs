@@ -36,8 +36,13 @@ impl Gui {
         raw();
         noecho();
         start_color();
-        init_pair(1, COLOR_RED, COLOR_WHITE);
-        init_pair(2, COLOR_GREEN, COLOR_WHITE);
+
+        init_pair(1, 1, COLOR_WHITE);
+        init_pair(2, 2, COLOR_WHITE);
+        init_pair(3, 3, COLOR_WHITE);
+        init_pair(4, 4, COLOR_WHITE);
+        init_pair(5, 5, COLOR_WHITE);
+        init_pair(6, 6, COLOR_WHITE);
 
         let ramwin = newwin(RAMHEIGHT, RAMWIDTH, RAMY, RAMX);
         let regwin = newwin(REGHEIGHT, REGWIDTH, REGY, REGX);
@@ -63,7 +68,7 @@ impl Gui {
         }
     }
 
-    fn draw_ram(&self, r: mem::Ram, pc: u16, sp: u16) {
+    fn draw_ram(&self, r: mem::Ram, regs: mem::Regs) {
         let mut rowct = 1;
         for row in std::iter::range(0, r.arr.len()/16) {
             let mut nonzero = false;
@@ -73,23 +78,22 @@ impl Gui {
             if !nonzero { continue };
             wmove(self.ramwin, rowct, 1); rowct += 1;
             wprintw(self.ramwin, format!("{:04x}:  ", row * 16));
-            for col in range(0u, 16u) { 
+            'cols : for col in range(0u, 16u) { 
                 if col % 2 == 0 {
-                    // take two at once
-                    if row * 16 + col == pc as uint  {
+                    let celln = row * 16 + col;
+                    for regn in range(0, 16) {
+                        let regf = (regn % 6) as i16 + 1;
+                        let regval = regs.arr[regn] & 0xfffe;
+                        if celln & 0xfffe == regval as uint {
                         // print in colour
-                        wattron(self.ramwin, COLOR_PAIR(1));
-                        wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[row * 16 + col], r.arr[row * 16 + col + 1]));
-                        wattroff(self.ramwin, COLOR_PAIR(1));
-                    } else if row * 16 + col == sp as uint  {
-                        // print in colour
-                        wattron(self.ramwin, COLOR_PAIR(2));
-                        wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[row * 16 + col], r.arr[row * 16 + col + 1]));
-                        wattroff(self.ramwin, COLOR_PAIR(2));
-                    } else {
-                        // normal print
-                        wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[row * 16 + col], r.arr[row * 16 + col + 1]));
+                            wattron(self.ramwin, COLOR_PAIR(regf));
+                            wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[celln], r.arr[celln + 1]));
+                            wattroff(self.ramwin, COLOR_PAIR(regf));
+                            continue 'cols;
+                        }
                     }
+                        // normal print
+                    wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[celln], r.arr[celln + 1]));
                 }
             }
         }
@@ -138,9 +142,9 @@ impl Gui {
     }
 
     pub fn render(&self, cpu: &cpu::Cpu) {
-        self.draw_ram(cpu.ram, cpu.inst.memloc, cpu.regs.arr[1]);
+        self.draw_ram(cpu.ram, cpu.regs);
         self.draw_regs(cpu.regs, cpu.inst);
-        self.draw_inst(cpu.inst);
+        //self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);
         mvprintw(LINES - 2, 0, "s: step, c: continue, f: fast-forward, b: add breakpoint, q: quit");
         move(LINES - 3, 10); // to allow println! usage
@@ -150,6 +154,7 @@ impl Gui {
     pub fn getstring(&self) -> ~str {
         let mut s = ~"";
         echo();
+        wmove(self.dbgwin, DBGHEIGHT-2,2);
         wgetstr(self.dbgwin, &mut s);
         noecho();
         s
