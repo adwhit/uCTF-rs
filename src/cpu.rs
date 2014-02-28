@@ -41,7 +41,7 @@ enum OpType {
 }
 
 pub enum Status {
-    GetInput(~str),
+    GetInput(~[u8]),
     Off,
     Success,
     Normal
@@ -269,8 +269,9 @@ impl Cpu {
                 self.buf.push_char(self.ram.arr[self.regs.arr[1]+8] as char);
                 self.twoarg_dispatch(MOV)
             }
-            0x8200 => { self.status = GetInput(~"") },                     //getsn 
+            0x8200 => { self.status = GetInput(~[]) },                     //getsn 
             0xff00 => { self.status = Success }
+            0xfd00 => { self.twoarg_dispatch(MOV) }
             _ => ()
         }
     }
@@ -407,7 +408,7 @@ impl Cpu {
 
     // load and execute one instruction
     pub fn step(&mut self) { 
-        let mut string = ~"";
+        let mut b = ~[];
         match self.status {
             Normal => {
                 self.exec();
@@ -415,24 +416,24 @@ impl Cpu {
                 if self.regs.arr[2] & 0x80 != 0 { self.status = Off } // CPU OFF
             },
             Off | Success => (),
-            GetInput(ref s) => {string = s.clone()}
+            GetInput(ref bytes) => b = bytes.clone()
         }
-        if string != ~"" { 
-            self.getsn(string);
+        if b != ~[] {
+            self.getsn(b);
+            //prepare next instruction
             self.status = Normal;
             self.inst =  parse_inst(0x4130,0);
             self.get_addressing_modes();
         }
     }
 
-    fn getsn(&mut self, s: ~str) {
-        println!("{}", s);
-        let bytes: ~[u8] = s.clone().bytes().collect();
+    fn getsn(&mut self, bytes: ~[u8]) {
         let sp = self.regs.arr[1];
-        let mut getn = self.ram.arr[sp + 10];
-        if (bytes.len() as u8) < getn { getn = bytes.len() as u8 }
+        let putloc = self.ram.loadw(sp + 8);
+        let mut getn = self.ram.loadw(sp + 10);
+        if (bytes.len() as u16) < getn { getn = bytes.len() as u16 }
         for i in range(0, getn) {
-            self.ram.arr[sp + 16 + (i as u16)] =  bytes[i];
+            self.ram.arr[putloc + (i as u16)] =  bytes[i];
         }
     }
 

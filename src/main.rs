@@ -36,7 +36,7 @@ fn main() {
                         cpu.buf.push_str("Success! Door unlocked\n"); 
                         windows.render(&cpu);
                     },
-                    &GetInput(_) => { cpu.status = GetInput(windows.getstring()) },
+                    &GetInput(_) => { cpu.status = GetInput(str2bytes(windows.getstring())) },
                     &Normal => {windows.render(&cpu)},
                 }
                 windows.render(&cpu);
@@ -55,7 +55,11 @@ fn main() {
                             windows.render(&cpu);
                             break 'outer
                         },
-                        &GetInput(_) => { cpu.status = GetInput(windows.getstring()); break 'outer },
+                        &GetInput(_) => { 
+                            windows.render(&cpu);
+                            cpu.status = GetInput(str2bytes(windows.getstring()));
+                            break 'outer 
+                        },
                         &Normal => if c == 99 {windows.render(&cpu)},
                     }
                     for &num in breakpoints.iter() { if cpu.inst.memloc == num { break 'outer } }
@@ -86,3 +90,18 @@ fn main() {
     nc::endwin();
 }
 
+fn str2bytes(s : &str) -> ~[u8] {
+    if s.starts_with(&'static "x") {
+        let mut res: ~[u8] = ~[];
+        let bytes :~[u8] = s.slice_from(1).bytes().collect();
+        for chunk in bytes.chunks(2) {
+            match std::u8::parse_bytes(chunk, 16) {
+                Some(n) => res.push(n),
+                None => ()
+            }
+        }
+        res
+    } else {
+        s.bytes().collect()
+    }
+}

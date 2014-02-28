@@ -4,7 +4,7 @@ use mem;
 use cpu;
 use std;
 
-static RAMHEIGHT : i32 = 50;
+static RAMHEIGHT : i32 = 40;
 static RAMWIDTH : i32 = 49;
 static RAMX : i32 = 1;
 static RAMY : i32 = 1;
@@ -26,6 +26,7 @@ pub struct Gui {
     regwin : WINDOW,
     asmwin : WINDOW,
     dbgwin : WINDOW,
+    lit: [bool,..16]
 }
 
 impl Gui {
@@ -64,11 +65,13 @@ impl Gui {
             ramwin: ramwin,
             regwin: regwin,
             asmwin: asmwin,
-            dbgwin: dbgwin
+            dbgwin: dbgwin,
+            lit: [false,..16]
         }
     }
 
-    fn draw_ram(&self, r: mem::Ram, regs: mem::Regs) {
+    fn draw_ram(&mut self, r: mem::Ram, regs: mem::Regs) {
+        self.lit = [false,..16];
         let mut rowct = 1;
         let mut printlast = false;
         'rows: for row in std::iter::range(0, r.arr.len()/16) {
@@ -101,6 +104,7 @@ impl Gui {
                         // print in colour
                             wattron(self.ramwin, COLOR_PAIR(regf));
                             wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[celln], r.arr[celln + 1]));
+                            self.lit[regn] = true;
                             wattroff(self.ramwin, COLOR_PAIR(regf));
                             continue 'cols;
                         }
@@ -114,19 +118,24 @@ impl Gui {
     }
 
     fn draw_regs(&self, r: mem::Regs, inst: cpu::Instruction) {
-        mvwprintw(self.regwin,1,1, format!("PC  {:04x} SP  {:04x} SR  {:04x} CG  {:04x}",
-            inst.memloc, r.arr[1], r.arr[2], r.arr[3]));
-        mvwprintw(self.regwin,2,1, format!("R04 {:04x} R05 {:04x} R06 {:04x} R07 {:04x}",
-            r.arr[4], r.arr[5], r.arr[6], r.arr[7]));
-        mvwprintw(self.regwin,3,1, format!("R08 {:04x} R09 {:04x} R10 {:04x} R11 {:04x}",
-            r.arr[8], r.arr[9], r.arr[10], r.arr[11]));
-        mvwprintw(self.regwin,4,1, format!("R12 {:04x} R13 {:04x} R14 {:04x} R15 {:04x}",
-            r.arr[12], r.arr[13], r.arr[14], r.arr[15]));
-        mvwprintw(self.regwin,5,10, inst.to_string());
-        wprintw(self.regwin,"       ");
+        let mut linect = 0;
+        for regn in range(0, 16) {
+            let s : ~str;
+            if regn % 4 == 3 {
+                s = format!("R{:02i} {:04x}", regn, r.arr[regn]);
+            } else { 
+                s = format!("R{:02i} {:04x} ", regn, r.arr[regn])
+            }
+            if regn % 4 == 0 { linect += 1; wmove(self.regwin, linect, 1);}
+            if self.lit[regn] {
+                colprint(self.regwin, (regn % 6 +1) as i16, s)
+            } else {
+                wprintw(self.regwin, s);
+            }
+        }
+        mvwprintw(self.regwin, 5,10,format!("{:20s}", inst.to_string()));
         wrefresh(self.regwin);
     }
-
 
     fn draw_inst(&self, inst: cpu::Instruction) {
         mvwprintw(self.asmwin, 1,1, format!("MemLoc:0x{:04x} | Value:  0x{:04x}//{:016t}", 
@@ -154,7 +163,7 @@ impl Gui {
         wrefresh(self.dbgwin);
     }
 
-    pub fn render(&self, cpu: &cpu::Cpu) {
+    pub fn render(&mut self, cpu: &cpu::Cpu) {
         self.draw_ram(cpu.ram, cpu.regs);
         self.draw_regs(cpu.regs, cpu.inst);
         //self.draw_inst(cpu.inst);
@@ -172,4 +181,16 @@ impl Gui {
         noecho();
         s
     }
+}
+
+fn colprint(win: WINDOW, col: i16, s: ~str) {
+    wattron(win, COLOR_PAIR(col));
+    wprintw(win, s);
+    wattroff(win, COLOR_PAIR(col));
+}
+
+fn colmvprint(win: WINDOW, y:i32, x:i32, col: i16, s: ~str) {
+    wattron(win, COLOR_PAIR(col));
+    mvwprintw(win,y,x,s);
+    wattroff(win, COLOR_PAIR(col));
 }
