@@ -36,7 +36,7 @@ fn main() {
                         cpu.buf.push_str("Success! Door unlocked\n"); 
                         windows.render(&cpu);
                     },
-                    &GetInput(_) => { cpu.status = GetInput(str2bytes(windows.getstring())) },
+                    &GetInput(_) => { cpu.status = GetInput(str2bytes(getstring(cpu.buf))) },
                     &Normal => {windows.render(&cpu)},
                 }
                 windows.render(&cpu);
@@ -57,7 +57,7 @@ fn main() {
                         },
                         &GetInput(_) => { 
                             windows.render(&cpu);
-                            cpu.status = GetInput(str2bytes(windows.getstring()));
+                            cpu.status = GetInput(str2bytes(getstring(cpu.buf)));
                             break 'outer 
                         },
                         &Normal => if c == 99 {windows.render(&cpu)},
@@ -105,3 +105,13 @@ fn str2bytes(s : &str) -> ~[u8] {
         s.bytes().collect()
     }
 }
+
+fn getstring(buf: &str) -> ~str {
+    nc::endwin();
+    let mut std = stdin();
+    print!("{}", buf);
+    let s = std.read_line().unwrap();
+    nc::refresh();
+    s
+}
+

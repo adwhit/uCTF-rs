@@ -70,7 +70,7 @@ impl Gui {
         }
     }
 
-    fn draw_ram(&mut self, r: mem::Ram, regs: mem::Regs) {
+    fn draw_ram(&mut self, r: mem::Ram, regs: mem::Regs, pc: u16) {
         self.lit = [false,..16];
         let mut rowct = 1;
         let mut printlast = false;
@@ -99,7 +99,7 @@ impl Gui {
                     let celln = row * 16 + col;
                     for regn in range(0, 16) {
                         let regf = (regn % 6) as i16 + 1;
-                        let regval = regs.arr[regn] & 0xfffe;
+                        let regval = if regn == 1 { pc } else {regs.arr[regn] & 0xfffe};
                         if celln & 0xfffe == regval as uint {
                         // print in colour
                             wattron(self.ramwin, COLOR_PAIR(regf));
@@ -123,7 +123,9 @@ impl Gui {
             let s : ~str;
             if regn % 4 == 3 {
                 s = format!("R{:02i} {:04x}", regn, r.arr[regn]);
-            } else { 
+            } else if regn == 0 { 
+                s = format!("PC  {:04x} ", inst.memloc)
+            } else {
                 s = format!("R{:02i} {:04x} ", regn, r.arr[regn])
             }
             if regn % 4 == 0 { linect += 1; wmove(self.regwin, linect, 1);}
@@ -151,7 +153,7 @@ impl Gui {
     }
 
     fn draw_debug(&self, s: &str) {
-        let mut lines : ~[&str] = s.clone().lines().collect();
+        let lines : ~[&str] = s.clone().lines().collect();
         let l = lines.len();
         let mut ct = 1;
         for (ix, &line) in lines.iter().enumerate() { 
@@ -164,7 +166,7 @@ impl Gui {
     }
 
     pub fn render(&mut self, cpu: &cpu::Cpu) {
-        self.draw_ram(cpu.ram, cpu.regs);
+        self.draw_ram(cpu.ram, cpu.regs, cpu.inst.memloc);
         self.draw_regs(cpu.regs, cpu.inst);
         //self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);

@@ -271,7 +271,12 @@ impl Cpu {
             }
             0x8200 => { self.status = GetInput(~[]) },                     //getsn 
             0xff00 => { self.status = Success }
-            0xfd00 => { self.twoarg_dispatch(MOV) }
+            0xfd00 => { 
+                // assume fail, put zero in location
+                let storeloc = self.ram.loadw(self.regs.arr[1] + 8);
+                self.ram.store(storeloc, 0, true);
+                self.twoarg_dispatch(MOV)
+            }
             _ => ()
         }
     }
@@ -289,7 +294,7 @@ fn JC(cpu : &Cpu) -> bool { if !cpu.getflag(CARRYF) { true } else { false } }
 fn JN(cpu : &Cpu) -> bool { if cpu.getflag(NEGF) { true } else { false } }
 fn JGE(cpu : &Cpu) -> bool  { if cpu.getflag(NEGF) == cpu.getflag(OVERF) { true } else {false} }
 fn JL(cpu : &Cpu) -> bool { if !(cpu.getflag(NEGF) == cpu.getflag(OVERF)) { true } else { false } }
-fn JMP(cpu : &Cpu) -> bool { true }
+fn JMP(_ : &Cpu) -> bool { true }
 
 // One arg
 
@@ -308,14 +313,14 @@ fn SWPB(cpu: &mut Cpu, val: u16) {
 }
 
 //TODO: implement
-fn RRA(cpu:&mut Cpu, val: u16) { fail!("Not implemented") }
+fn RRA(_:&mut Cpu, _: u16) { fail!("Not implemented") }
 
 fn sxt(mut val: u16) -> u16 {
     if (val & 0x0080) != 0 { val |= 0xff00 }
     val
 }
 
-fn SXT(cpu:&mut Cpu, mut val: u16) {
+fn SXT(cpu:&mut Cpu, val: u16) {
     cpu.store(sxt(val))
 }
 
@@ -333,7 +338,7 @@ fn CALL(cpu:&mut Cpu,val: u16) {
     cpu.regs.arr[0] = val
 }
 
-fn RETI(cpu:&mut Cpu, val: u16) {
+fn RETI(_:&mut Cpu, _: u16) {
     fail!("Not implemented")
 }
 
@@ -349,16 +354,16 @@ fn SUBC(cpu:&mut Cpu, val: u16, inc: u16) {
     if C { cpu.set_and_store(val - inc + 1) } else { cpu.set_and_store(val - inc) }
 }
 
-fn MOV(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(inc) }
-fn ADD(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val + inc) }
-fn SUB(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val - inc) }
-fn CMP(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setzn(val - inc); }
-fn BIT(cpu: &mut Cpu, val: u16, inc: u16) { cpu.setzn(inc & val); } 
-fn BIC(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val & !inc) }
-fn BIS(cpu: &mut Cpu, val: u16, inc: u16) { cpu.store(val | inc) }
-fn XOR(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val ^ inc) }
-fn AND(cpu: &mut Cpu, val: u16, inc: u16) { cpu.set_and_store(val & inc) }
-fn DADD(cpu:&mut Cpu, val: u16, inc: u16) { fail!("Not implemented") }
+fn MOV(cpu: &mut Cpu, _: u16, srcval: u16) { cpu.store(srcval) }
+fn ADD(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval + srcval) }
+fn SUB(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval - srcval) }
+fn CMP(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.setzn(destval - srcval); }
+fn BIT(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.setzn(srcval & destval); } 
+fn BIC(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval & !srcval) }
+fn BIS(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval | srcval) }
+fn XOR(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval ^ srcval) }
+fn AND(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval & srcval) }
+fn DADD(_:&mut Cpu, _: u16, _: u16) { fail!("Not implemented") }
 
 impl Cpu {
 

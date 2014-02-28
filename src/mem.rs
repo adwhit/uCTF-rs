@@ -1,4 +1,5 @@
 #[allow(unused_must_use)];
+#[allow(dead_code)];
 
 use std::fmt;
 
@@ -81,7 +82,6 @@ impl fmt::Show for Ram {
             }
         }
         write!(f.buf, "|----------------------------------------------|")
-
     }
 }
 
