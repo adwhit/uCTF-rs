@@ -64,7 +64,7 @@ fn main() {
                     }
                     for &num in breakpoints.iter() { 
                         if cpu.inst.memloc == num {
-                            windows.render(&cpu); break 'outer 
+                            cpu.buf.push_str(format!("Break {:04x}\n", num)); windows.render(&cpu); break 'outer 
                         } 
                     }
                 }
@@ -79,7 +79,7 @@ fn main() {
                         cpu.buf.push_str(format!("Breakpoint added: {:04x}\n", n & 0xfffe));
                         windows.render(&cpu);
                     },
-                    None => cpu.buf.push_str(format!("Failed to add breakpoint {:?}\n", s.clone().into_bytes()))
+                    None => cpu.buf.push_str(format!("Failed to add breakpoint {}\n", s.clone()))
                 }
             },
             114 => {                //r 

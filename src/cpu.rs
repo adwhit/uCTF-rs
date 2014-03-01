@@ -345,20 +345,27 @@ fn RETI(_:&mut Cpu, _: u16) {
 
 // Two arg
 
-fn ADDC(cpu:&mut Cpu, val: u16, inc: u16) {
+fn ADDC(cpu:&mut Cpu, destval: u16, srcval: u16) {
     let C = cpu.getflag(CARRYF);
-    if C { cpu.set_and_store(val + inc + 1) } else { cpu.set_and_store(val + inc) }
+    let value = if C { destval + srcval + 1 } else { destval + srcval };
+    cpu.set_and_store(value);
+    cpu.set_flag(CARRYF, value < destval)
 }
 
-fn SUBC(cpu:&mut Cpu, val: u16, inc: u16) {
+fn SUBC(cpu:&mut Cpu, destval: u16, srcval: u16) {
     let C = cpu.getflag(CARRYF);
-    if C { cpu.set_and_store(val - inc + 1) } else { cpu.set_and_store(val - inc) }
+    let value = if C { destval - srcval + 1 } else { destval - srcval };
+    cpu.set_and_store(value);
+    cpu.set_flag(CARRYF, value > destval)
 }
 
 fn MOV(cpu: &mut Cpu, _: u16, srcval: u16) { cpu.store(srcval) }
-fn ADD(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval + srcval) }
-fn SUB(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval - srcval) }
-fn CMP(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.setzn(destval - srcval); }
+fn ADD(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval + srcval);
+                                           cpu.set_flag(CARRYF, destval + srcval < destval) }
+fn SUB(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval - srcval);
+                                           cpu.set_flag(CARRYF, destval - srcval > destval) }
+fn CMP(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.setzn(destval - srcval);
+                                           cpu.set_flag(CARRYF, destval - srcval > destval) }
 fn BIT(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.setzn(srcval & destval); } 
 fn BIC(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval & !srcval) }
 fn BIS(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval | srcval) }
