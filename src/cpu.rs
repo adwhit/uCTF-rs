@@ -120,7 +120,7 @@ fn noarg_split(code: u16) -> Instruction {
     let mut inst = Instruction::new();
     inst.code = code;
     inst.optype = NoArg;
-    inst.offset = 2*sxt(code & 0x3ff);
+    inst.offset = 2*sxt(code & 0x3ff, 9);
     inst.opcode = ((code & 0x1c00) >> 10) as u8;
     inst
 }
@@ -191,8 +191,8 @@ impl Cpu {
 
     fn _store(&mut self, regadr: u8, mode: AddressingMode, val: u16) {
         let regval = self.regs.load(regadr);
-        match mode {
-            Direct => self.regs.store(regadr, val),
+        let success = match mode {
+            Direct => {self.regs.store(regadr, val); true},
             Indirect => self.ram.store(regval, val, self.inst.bw),
             IndirectInc => {
                 self.regs.store(regadr, regval + 1);
@@ -205,7 +205,8 @@ impl Cpu {
                 self.ram.store(address, val, self.inst.bw)
             },
             _ => fail!("Invalid addressing mode")
-        }
+        };
+        if !success { self.status = Off }
     }
 
     //wrapper
@@ -277,7 +278,13 @@ impl Cpu {
                 self.ram.store(storeloc, 0, true);
                 self.twoarg_dispatch(MOV)
             },
-            0xfe00 => { self.twoarg_dispatch(MOV) }
+            0xfe00 => { self.twoarg_dispatch(MOV) },
+            0x9100 => { 
+                let addr = self.ram.loadw(self.regs.load(1) + 8);
+                let writable = {self.ram.loadw(self.regs.load(1) + 10) > 0};
+                self.ram.deparr[addr] == writable;
+                self.twoarg_dispatch(MOV) },
+            0x9000 => { self.ram.depstatus == true;Zself.twoarg_dispatch(MOV) },
             _ => ()
         }
     }
@@ -291,7 +298,7 @@ impl Cpu {
 fn JNE(cpu : &Cpu) -> bool { if !cpu.getflag(ZEROF) { true } else { false } }
 fn JEQ(cpu : &Cpu) -> bool { if cpu.getflag(ZEROF) { true } else { false } }
 fn JNC(cpu : &Cpu) -> bool { if !cpu.getflag(CARRYF) { true } else { false } }
-fn JC(cpu : &Cpu) -> bool { if !cpu.getflag(CARRYF) { true } else { false } }
+fn JC(cpu : &Cpu) -> bool { if cpu.getflag(CARRYF) { true } else { false } }
 fn JN(cpu : &Cpu) -> bool { if cpu.getflag(NEGF) { true } else { false } }
 fn JGE(cpu : &Cpu) -> bool  { if cpu.getflag(NEGF) == cpu.getflag(OVERF) { true } else {false} }
 fn JL(cpu : &Cpu) -> bool { if !(cpu.getflag(NEGF) == cpu.getflag(OVERF)) { true } else { false } }
@@ -314,15 +321,15 @@ fn SWPB(cpu: &mut Cpu, val: u16) {
 }
 
 //TODO: implement
-fn RRA(_:&mut Cpu, _: u16) { fail!("Not implemented") }
+fn RRA(cpu:&mut Cpu, val: u16) { cpu.set_and_store(val >> 1) }
 
-fn sxt(mut val: u16) -> u16 {
-    if (val & 0x0080) != 0 { val |= 0xff00 }
+fn sxt(mut val: u16, bit: u16) -> u16 {
+    if (val & 1 << bit) != 0 { val |= 0xff00 }
     val
 }
 
 fn SXT(cpu:&mut Cpu, val: u16) {
-    cpu.store(sxt(val))
+    cpu.store(sxt(val, 7))
 }
 
 fn PUSH(cpu:&mut Cpu, val: u16) {
@@ -354,18 +361,20 @@ fn ADDC(cpu:&mut Cpu, destval: u16, srcval: u16) {
 
 fn SUBC(cpu:&mut Cpu, destval: u16, srcval: u16) {
     let C = cpu.getflag(CARRYF);
-    let value = if C { destval - srcval + 1 } else { destval - srcval };
+    let value = if C { destval + !srcval + 1 } else { destval + !srcval };
     cpu.set_and_store(value);
-    cpu.set_flag(CARRYF, value > destval)
+    cpu.set_flag(CARRYF, value < destval)
 }
 
 fn MOV(cpu: &mut Cpu, _: u16, srcval: u16) { cpu.store(srcval) }
 fn ADD(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval + srcval);
                                            cpu.set_flag(CARRYF, destval + srcval < destval) }
-fn SUB(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval - srcval);
-                                           cpu.set_flag(CARRYF, destval - srcval > destval) }
-fn CMP(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.setzn(destval - srcval);
-                                           cpu.set_flag(CARRYF, destval - srcval > destval) }
+fn SUB(cpu: &mut Cpu, destval: u16, srcval: u16) { let value = destval + !srcval + 1;
+                                                   cpu.set_and_store(value);
+                                                   cpu.set_flag(CARRYF, value < destval) }
+fn CMP(cpu: &mut Cpu, destval: u16, srcval: u16) { let value = destval + !srcval + 1;
+                                                   cpu.setzn(value);
+                                                   cpu.set_flag(CARRYF, value < destval) }
 fn BIT(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.setzn(srcval & destval); } 
 fn BIC(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval & !srcval) }
 fn BIS(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval | srcval) }
@@ -431,6 +440,7 @@ impl Cpu {
             Off | Success => (),
             GetInput(ref bytes) => b = bytes.clone()
         }
+        if self.ram.depstatus && self.ram.deparr[self.regs.arr[0] >> 16] { self.status = Off }
         if b != ~[] {
             self.getsn(b);
             //prepare next instruction

@@ -172,7 +172,7 @@ impl Gui {
         box_(self.dbgwin, 0, 0);
         self.draw_ram(cpu.ram, cpu.regs, cpu.inst.memloc);
         self.draw_regs(cpu.regs, cpu.inst);
-        //self.draw_inst(cpu.inst);
+        self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);
         mvprintw(LINES - 2, 0, "s: step, c: continue, f: fast-forward, b: add breakpoint, d to redraw, q: quit");
         move(LINES - 3, 10); // to allow println! usage

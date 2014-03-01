@@ -5,14 +5,14 @@ use std::fmt;
 
 pub trait Mem {
     fn loadb(&self, addr: u16) -> u8;
-    fn storeb(&mut self, addr: u16, val: u8);
+    fn storeb(&mut self, addr: u16, val: u8) -> bool ;
 }
 
 pub trait MemUtil {
     fn loadw(&self, addr: u16) -> u16;
-    fn storew(&mut self, addr: u16, val: u16);
+    fn storew(&mut self, addr: u16, val: u16) -> bool;
     fn load(&self, addr: u16, byteflag: bool) -> u16;
-    fn store(&mut self, addr: u16, val: u16, byteflag: bool);
+    fn store(&mut self, addr: u16, val: u16, byteflag: bool) -> bool ;
 }
 
 impl<M: Mem> MemUtil for M {
@@ -20,9 +20,8 @@ impl<M: Mem> MemUtil for M {
         self.loadb(addr) as u16 | (self.loadb(addr +1) as u16 << 8)
     }
 
-    fn storew(&mut self, addr: u16, val: u16) {
-        self.storeb(addr, (val & 0xff) as u8);
-        self.storeb(addr + 1, (val >> 8) as u8);
+    fn storew(&mut self, addr: u16, val: u16) -> bool {
+        self.storeb(addr, (val & 0xff) as u8) && self.storeb(addr + 1, (val >> 8) as u8)
     }
 
     fn load(&self, addr: u16, byteflag: bool) -> u16 {
@@ -33,7 +32,7 @@ impl<M: Mem> MemUtil for M {
         }
     }
 
-    fn store(&mut self, addr: u16, val: u16, byteflag: bool) {
+    fn store(&mut self, addr: u16, val: u16, byteflag: bool) -> bool {
         if byteflag {
             self.storeb(addr, val as u8)
         } else {
@@ -44,17 +43,64 @@ impl<M: Mem> MemUtil for M {
 
 pub struct Ram {
     arr: [u8, ..0x10000],
+    depstatus: bool,
+    deparr: [bool, ..0x100], //true = writeable, false = executable
 }
 
 impl Ram {
     pub fn new() -> Ram {
-        Ram { arr: [0, ..0x10000] }
+        Ram { arr: [0, ..0x10000], depstatus : false, deparr : [false,..0x100] }
     }
 
     pub fn loadimage(&mut self, image: &[u8]) {
         for (ix, &byte) in image.iter().enumerate() {
-            self.storeb(0x4400 + ix as u16, byte)
+            self.storeb(0x4400 + ix as u16, byte);
         }
+    }
+}
+
+impl Mem for Ram {
+    fn loadb(&self, addr: u16) -> u8 {
+        self.arr[addr]
+    }
+    fn storeb(&mut self, addr: u16, val: u8) -> bool {
+        if !self.depstatus || self.deparr[addr >> 16] {
+            self.arr[addr] = val;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+pub struct Regs {
+    arr: [u16, ..16]
+}
+
+impl Regs {
+    pub fn load(&self, addr: u8) -> u16 {
+        self.arr[addr]
+    }
+    pub fn store(&mut self, addr: u8, val: u16) {
+        self.arr[addr] = val
+    }
+    pub fn new() -> Regs {
+        Regs { arr: [0, ..16] }
+    }
+}
+
+impl fmt::Show for Regs {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "|-------------Registers-------------|\n");
+        write!(f.buf, "|PC  {:04x} SP  {:04x} SR  {:04x} CG  {:04x}|\n",
+            self.arr[0], self.arr[1], self.arr[2], self.arr[3]);
+        write!(f.buf, "|R04 {:04x} R05 {:04x} R06 {:04x} R07 {:04x}|\n",
+            self.arr[4], self.arr[5], self.arr[6], self.arr[7]);
+        write!(f.buf, "|R08 {:04x} R09 {:04x} R10 {:04x} R11 {:04x}|\n",
+            self.arr[8], self.arr[9], self.arr[10], self.arr[11]);
+        write!(f.buf, "|R12 {:04x} R13 {:04x} R14 {:04x} R15 {:04x}|\n",
+            self.arr[12], self.arr[13], self.arr[14], self.arr[15]);
+        write!(f.buf, "|-----------------------------------|")
     }
 }
 
@@ -82,45 +128,5 @@ impl fmt::Show for Ram {
             }
         }
         write!(f.buf, "|----------------------------------------------|")
-    }
-}
-
-pub struct Regs {
-    arr: [u16, ..16]
-}
-
-impl Mem for Ram {
-    fn loadb(&self, addr: u16) -> u8 {
-        self.arr[addr]
-    }
-    fn storeb(&mut self, addr: u16, val: u8) {
-        self.arr[addr] = val
-    }
-}
-
-impl fmt::Show for Regs {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "|-------------Registers-------------|\n");
-        write!(f.buf, "|PC  {:04x} SP  {:04x} SR  {:04x} CG  {:04x}|\n",
-            self.arr[0], self.arr[1], self.arr[2], self.arr[3]);
-        write!(f.buf, "|R04 {:04x} R05 {:04x} R06 {:04x} R07 {:04x}|\n",
-            self.arr[4], self.arr[5], self.arr[6], self.arr[7]);
-        write!(f.buf, "|R08 {:04x} R09 {:04x} R10 {:04x} R11 {:04x}|\n",
-            self.arr[8], self.arr[9], self.arr[10], self.arr[11]);
-        write!(f.buf, "|R12 {:04x} R13 {:04x} R14 {:04x} R15 {:04x}|\n",
-            self.arr[12], self.arr[13], self.arr[14], self.arr[15]);
-        write!(f.buf, "|-----------------------------------|")
-    }
-}
-
-impl Regs {
-    pub fn load(&self, addr: u8) -> u16 {
-        self.arr[addr]
-    }
-    pub fn store(&mut self, addr: u8, val: u16) {
-        self.arr[addr] = val
-    }
-    pub fn new() -> Regs {
-        Regs { arr: [0, ..16] }
     }
 }
