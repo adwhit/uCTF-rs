@@ -276,7 +276,8 @@ impl Cpu {
                 let storeloc = self.ram.loadw(self.regs.arr[1] + 8);
                 self.ram.store(storeloc, 0, true);
                 self.twoarg_dispatch(MOV)
-            }
+            },
+            0xfe00 => { self.twoarg_dispatch(MOV) }
             _ => ()
         }
     }

@@ -62,20 +62,24 @@ fn main() {
                         },
                         &Normal => if c == 99 {windows.render(&cpu)},
                     }
-                    for &num in breakpoints.iter() { if cpu.inst.memloc == num { break 'outer } }
+                    for &num in breakpoints.iter() { 
+                        if cpu.inst.memloc == num {
+                            windows.render(&cpu); break 'outer 
+                        } 
+                    }
                 }
             },
             113 => break 'main,
             98 => {                 //b  -> breakpoint
-                let s = windows.getstring();
-                let noption = std::u16::parse_bytes(s.into_bytes(), 16);
+                let s = getstring("Enter breakpoint location:\n");
+                let noption = std::u16::parse_bytes(s.trim().to_owned().into_bytes(),16);
                 match noption {
                     Some(n) => {
-                        breakpoints.push(n);
-                        cpu.buf.push_str(format!("Breakpoint added: {:04x}\n", n));
+                        breakpoints.push(n & 0xfffe);
+                        cpu.buf.push_str(format!("Breakpoint added: {:04x}\n", n & 0xfffe));
                         windows.render(&cpu);
                     },
-                    None => ()
+                    None => cpu.buf.push_str(format!("Failed to add breakpoint {:?}\n", s.clone().into_bytes()))
                 }
             },
             114 => {                //r 
@@ -84,6 +88,7 @@ fn main() {
                 cpu.buf.push_str("CPU reset\n"); 
                 windows.render(&cpu); 
             },
+            100 => { nc::endwin(); windows.render(&cpu); nc::refresh(); },        //d
             _ => ()
         }
     }
@@ -91,7 +96,7 @@ fn main() {
 }
 
 fn str2bytes(s : &str) -> ~[u8] {
-    if s.starts_with(&'static "x") {
+    let mut out = if s.starts_with(&'static "x") {
         let mut res: ~[u8] = ~[];
         let bytes :~[u8] = s.slice_from(1).bytes().collect();
         for chunk in bytes.chunks(2) {
@@ -100,16 +105,19 @@ fn str2bytes(s : &str) -> ~[u8] {
                 None => ()
             }
         }
+        res.push(0u8);
         res
     } else {
         s.bytes().collect()
-    }
+    };
+    out.push(0u8);
+    out
 }
 
 fn getstring(buf: &str) -> ~str {
     nc::endwin();
-    let mut std = stdin();
     print!("{}", buf);
+    let mut std = stdin();
     let s = std.read_line().unwrap();
     nc::refresh();
     s

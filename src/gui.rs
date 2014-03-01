@@ -4,7 +4,7 @@ use mem;
 use cpu;
 use std;
 
-static RAMHEIGHT : i32 = 40;
+static RAMHEIGHT : i32 = 60;
 static RAMWIDTH : i32 = 49;
 static RAMX : i32 = 1;
 static RAMY : i32 = 1;
@@ -99,8 +99,8 @@ impl Gui {
                     let celln = row * 16 + col;
                     for regn in range(0, 16) {
                         let regf = (regn % 6) as i16 + 1;
-                        let regval = if regn == 1 { pc } else {regs.arr[regn] & 0xfffe};
-                        if celln & 0xfffe == regval as uint {
+                        let regval = if regn == 0 { pc } else {regs.arr[regn] & 0xfffe};
+                        if celln == regval as uint {
                         // print in colour
                             wattron(self.ramwin, COLOR_PAIR(regf));
                             wprintw(self.ramwin, format!("{:02x}{:02x} ", r.arr[celln], r.arr[celln + 1]));
@@ -166,11 +166,15 @@ impl Gui {
     }
 
     pub fn render(&mut self, cpu: &cpu::Cpu) {
+        box_(self.ramwin, 0, 0);
+        box_(self.regwin, 0, 0);
+        box_(self.asmwin, 0, 0);
+        box_(self.dbgwin, 0, 0);
         self.draw_ram(cpu.ram, cpu.regs, cpu.inst.memloc);
         self.draw_regs(cpu.regs, cpu.inst);
         //self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);
-        mvprintw(LINES - 2, 0, "s: step, c: continue, f: fast-forward, b: add breakpoint, q: quit");
+        mvprintw(LINES - 2, 0, "s: step, c: continue, f: fast-forward, b: add breakpoint, d to redraw, q: quit");
         move(LINES - 3, 10); // to allow println! usage
         refresh();
     }
