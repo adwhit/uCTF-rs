@@ -1,5 +1,6 @@
 use mem::{MemUtil, Ram, Regs};
 use std::fmt;
+use std::rand;
 use ncurses;
 
 mod mem;
@@ -206,7 +207,7 @@ impl Cpu {
             },
             _ => fail!("Invalid addressing mode")
         };
-        if !success { self.status = Off }
+        if !success { ncurses:: endwin(); println!("{:?}", self.ram.deparr);self.status = Off }
     }
 
     //wrapper
@@ -266,27 +267,25 @@ impl Cpu {
 
     fn handle_interrupt(&mut self) {
         match self.regs.arr[2] {            //sr register
-            0x8000 => {
-                self.buf.push_char(self.ram.arr[self.regs.arr[1]+8] as char);
-                self.twoarg_dispatch(MOV)
-            }
-            0x8200 => { self.status = GetInput(~[]) },                     //getsn 
-            0xff00 => { self.status = Success }
-            0xfd00 => { 
+            0x8000 => { self.buf.push_char(self.ram.arr[self.regs.arr[1]+8] as char); } // putsn
+            0x8200 => { self.buf.push_char('\n'); self.status = GetInput(~[]); return },                          //getsn 
+            0xff00 => { self.status = Success }                                         //unlock
+            0xfd00 => {                                                                 //try unlock
                 // assume fail, put zero in location
                 let storeloc = self.ram.loadw(self.regs.arr[1] + 8);
                 self.ram.store(storeloc, 0, true);
-                self.twoarg_dispatch(MOV)
             },
-            0xfe00 => { self.twoarg_dispatch(MOV) },
-            0x9100 => { 
+            0xfe00 => (),                                                               //try unlock 2
+            0x9100 => {                                                                 //set writable/exec only
                 let addr = self.ram.loadw(self.regs.load(1) + 8);
-                let writable = {self.ram.loadw(self.regs.load(1) + 10) > 0};
-                self.ram.deparr[addr] == writable;
-                self.twoarg_dispatch(MOV) },
-            0x9000 => { self.ram.depstatus == true;Zself.twoarg_dispatch(MOV) },
-            _ => ()
+                let writable = self.ram.loadw(self.regs.load(1) + 10) > 0;
+                self.ram.deparr[addr] = writable;},
+            0x9000 => { self.ram.depstatus = true },                                   //turn on dep
+            0xa000 => { self.regs.store(15, rand::random::<u16>()); }                   //random
+            w => { self.buf.push_str(format!("Interrupt not implemented: {:04x}\n",w));
+                   self.status = Off; }
         }
+        self.twoarg_dispatch(MOV)
     }
 }
 
@@ -306,7 +305,6 @@ fn JMP(_ : &Cpu) -> bool { true }
 
 // One arg
 
-//XXX think this is wrong
 fn RRC(cpu: &mut Cpu, mut val: u16) {
     let C = cpu.getflag(CARRYF);
     val >>= 1;
@@ -320,7 +318,6 @@ fn SWPB(cpu: &mut Cpu, val: u16) {
     cpu.store(topbyte | botbyte)
 }
 
-//TODO: implement
 fn RRA(cpu:&mut Cpu, val: u16) { cpu.set_and_store(val >> 1) }
 
 fn sxt(mut val: u16, bit: u16) -> u16 {

@@ -17,7 +17,7 @@ static ASMWIDTH : i32 = 70;
 static ASMX : i32 = 52;
 static ASMY : i32 = 10;
 static DBGHEIGHT : i32 = 10;
-static DBGWIDTH : i32 = 50;
+static DBGWIDTH : i32 = 70;
 static DBGX : i32 = 52;
 static DBGY : i32 = 20;
 
@@ -148,7 +148,7 @@ impl Gui {
                                             inst.destreg, inst.destmode));
         mvwprintw(self.asmwin, 4,1,format!("SourceReg:{:02u}  | SourceMode:{} ",
                                            inst.srcreg, inst.srcmode));
-        mvwprintw(self.asmwin, 5,1,format!("{:20s}", inst.to_string()));
+        mvwprintw(self.asmwin, 5,1,format!("{:25s}", inst.to_string()));
         wrefresh(self.asmwin);
     }
 
@@ -172,9 +172,9 @@ impl Gui {
         box_(self.dbgwin, 0, 0);
         self.draw_ram(cpu.ram, cpu.regs, cpu.inst.memloc);
         self.draw_regs(cpu.regs, cpu.inst);
-        self.draw_inst(cpu.inst);
+//        self.draw_inst(cpu.inst);
         self.draw_debug(cpu.buf);
-        mvprintw(LINES - 2, 0, "s: step, c: continue, f: fast-forward, b: add breakpoint, d to redraw, q: quit");
+        mvprintw(LINES - 2, 0, "s: step, c: continue, f: fast-forward, b: add breakpoint, d: redraw, q: quit");
         move(LINES - 3, 10); // to allow println! usage
         refresh();
     }

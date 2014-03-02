@@ -64,11 +64,11 @@ impl Mem for Ram {
         self.arr[addr]
     }
     fn storeb(&mut self, addr: u16, val: u8) -> bool {
-        if !self.depstatus || self.deparr[addr >> 16] {
+        if self.depstatus && !self.deparr[addr >> 8] {
+            false
+        } else {
             self.arr[addr] = val;
             true
-        } else {
-            false
         }
     }
 }
