@@ -1,6 +1,6 @@
 use mem::{MemUtil, Ram, Regs};
-use std::fmt;
-use std::rand;
+use std::{fmt, rand};
+use collections::HashSet;
 use ncurses;
 
 mod mem;
@@ -29,9 +29,9 @@ pub struct Instruction {
     offset: u16,
     bw: bool,
     srcreg: u8,
-    destreg: u8,
     srcmode: AddressingMode,
-    destmode: AddressingMode
+    destreg: u8,
+    destmode: AddressingMode,
 }
 
 enum OpType {
@@ -576,6 +576,28 @@ fn optype_formatter(mode: AddressingMode, reg: u8) -> ~str {
         Const(n) => format!("{:x}", n)
     }
 }
+
+pub fn disasm(ram: &[u8]) -> ~[(u16,~str)] {
+    let mut c = Cpu::init(ram.clone());
+    c.regs.arr[0] = 0;
+    let mut blkstoinclude = HashSet::new();
+    let mut lastblock : u16 = 0;
+    for block in range(0, (c.ram.arr.len() >> 8) as u16) {
+        //look for interesting blocks
+        //println!("{}", block);
+        let mut sum = 0u16;
+        for ix in range(0u16,16u16) { sum += (c.ram.arr[(block << 8) + ix] as u16) }
+        if sum > 0 { blkstoinclude.insert(block) ; lastblock = block }
+    }
+    let mut listing : ~[(u16, ~str)] = ~[];
+    while (c.regs.arr[0] >> 8) <= lastblock {
+        c.prepare_next();
+        let blk = c.regs.arr[0] >> 8;
+        if blkstoinclude.contains(&blk) {listing.push((c.inst.memloc, c.inst.to_string()))}
+    }
+    listing
+}
+        
 
 impl fmt::Show for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

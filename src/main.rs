@@ -1,24 +1,59 @@
 #[feature(globs)];
 
 extern crate ncurses;
+extern crate collections;
+extern crate getopts;
 
 use cpu::{Cpu, GetInput, Normal, Success, Off};
 use std::io::{File, stdin};
-use std::os::args;
+use std::os;
+use getopts::{optflag, getopts};
 use nc = ncurses;
 
 mod cpu;
 mod gui;
 mod mem;
 
+fn print_usage(s: &str) {
+    println!("Usage: {} [options] INPUT", s);
+    println!("Options: -d --disasm      print disassembled input");
+}
+
+fn print_disasm(v: &[u8]) {
+    let arr: ~[(u16, ~str)] = cpu::disasm(v);
+    for (lineno, line) in arr.move_iter() {
+        println!("{:04x}: {}", lineno, line)
+    }
+}
+
+
+
 fn main() {
-    let argv = args();
-    let fpath = argv[1];
+    let args = os::args();
+    let opts = ~[optflag("d", "disasm", "Print disassembled file")];
+    let matches = match getopts(args.tail(), opts) {
+        Ok(m) => m,
+        Err(f) => { println!("Argument parse failed"); print_usage(args[0]); return }
+    };
+    let fpath = if !matches.free.is_empty() {
+        matches.free[0].clone()
+    } else {
+        print_usage(args[0]);
+        return;
+    };
     let memval = File::open(&Path::new(fpath)).read_to_end();
+
     let v = match memval {
         Ok(v) => v,
         Err(e) => fail!(e)
     };
+
+
+    if matches.opt_present("d") {
+        print_disasm(v);
+        return
+    }
+
     let mut cpu = Cpu::init(v);
     let mut windows = gui::Gui::init();
     windows.render(&cpu);
