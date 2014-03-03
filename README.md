@@ -1,7 +1,7 @@
 uCTF-rs
 ===
 
-An msp430 emulator/debugger written in rust. It implemnts the interrupt features necessary to run the [microcorruption](www.microcorruption.com) capture-the-flag.
+An msp430 emulator/debugger written in rust. It implements the interrupt features necessary to run the [microcorruption](www.microcorruption.com) capture-the-flag.
 
 ### Usage
 
