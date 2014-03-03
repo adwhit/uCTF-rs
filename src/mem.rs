@@ -52,9 +52,9 @@ impl Ram {
         Ram { arr: [0, ..0x10000], depstatus : false, deparr : [false,..0x100] }
     }
 
-    pub fn loadimage(&mut self, image: &[u8]) {
+    pub fn loadimage(&mut self, image: &[u8], startfrom: u16) {
         for (ix, &byte) in image.iter().enumerate() {
-            self.storeb(0x4400 + ix as u16, byte);
+            self.storeb(startfrom + ix as u16, byte);
         }
     }
 }

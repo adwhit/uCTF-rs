@@ -479,24 +479,19 @@ impl Cpu {
 
     pub fn init(image: &[u8]) -> Cpu {
         let mut cpu = Cpu::new();
-        cpu.ram.loadimage(image);
+        cpu.ram.loadimage(image, 0x4400);
         cpu.regs.arr[0] = 0x4400;
         cpu.prepare_next();
         cpu
     }
+
 }
 
 impl fmt::Show for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f.buf,
 "******************* CPU *******************
-{}
-
-{}
-
-{}
-
-{}
+{}\n\n{}\n\n{}\n\n{}
 ++++++++++++++++++++++++++++++++++++++++++++", self.ram, self.regs, self.inst, self.buf)
     }
 }
@@ -547,7 +542,7 @@ impl Instruction {
             (TwoArg,0b1110) => ~"XOR",
             (TwoArg,0b1111) => ~"AND",
             (Interrupt,_) => ~"INT",
-            (_,_) => unreachable!()
+            (_,_) => ~"UNKNOWN",
         }
     }
 
@@ -577,22 +572,26 @@ fn optype_formatter(mode: AddressingMode, reg: u8) -> ~str {
     }
 }
 
-pub fn disasm(ram: &[u8]) -> ~[(u16,~str)] {
-    let mut c = Cpu::init(ram.clone());
-    c.regs.arr[0] = 0;
+
+pub fn disassemble(v: &[u8]) -> ~[(u16, ~str)] {
+    let mut c = Cpu::new();
+    c.ram.loadimage(v,0);
     let mut blkstoinclude = HashSet::new();
     let mut lastblock : u16 = 0;
-    for block in range(0, (c.ram.arr.len() >> 8) as u16) {
+    for block in range(0, (c.ram.arr.len()/16) as u16) {
         //look for interesting blocks
-        //println!("{}", block);
-        let mut sum = 0u16;
-        for ix in range(0u16,16u16) { sum += (c.ram.arr[(block << 8) + ix] as u16) }
-        if sum > 0 { blkstoinclude.insert(block) ; lastblock = block }
+        let mut sum = 0u;
+        for ix in range(0u16,16u16) { sum += c.ram.arr[16*block + ix] as uint }
+        if sum > 0 { 
+            blkstoinclude.insert(block) ;
+            lastblock = block
+        }
     }
     let mut listing : ~[(u16, ~str)] = ~[];
-    while (c.regs.arr[0] >> 8) <= lastblock {
+    while c.regs.arr[0]/16 <= lastblock {
+        //print if interesting
         c.prepare_next();
-        let blk = c.regs.arr[0] >> 8;
+        let blk = c.regs.arr[0]/16;
         if blkstoinclude.contains(&blk) {listing.push((c.inst.memloc, c.inst.to_string()))}
     }
     listing

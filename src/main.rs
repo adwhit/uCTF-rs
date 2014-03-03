@@ -20,45 +20,14 @@ fn print_usage(s: &str) {
 }
 
 fn print_disasm(v: &[u8]) {
-    let arr: ~[(u16, ~str)] = cpu::disasm(v);
-    for (lineno, line) in arr.move_iter() {
+    let listing = cpu::disassemble(v);
+    for (lineno, line) in listing.move_iter() {
         println!("{:04x}: {}", lineno, line)
     }
 }
 
-
-
-fn main() {
-    let args = os::args();
-    let opts = ~[optflag("d", "disasm", "Print disassembled file")];
-    let matches = match getopts(args.tail(), opts) {
-        Ok(m) => m,
-        Err(f) => { println!("Argument parse failed"); print_usage(args[0]); return }
-    };
-    let fpath = if !matches.free.is_empty() {
-        matches.free[0].clone()
-    } else {
-        print_usage(args[0]);
-        return;
-    };
-    let memval = File::open(&Path::new(fpath)).read_to_end();
-
-    let v = match memval {
-        Ok(v) => v,
-        Err(e) => fail!(e)
-    };
-
-
-    if matches.opt_present("d") {
-        print_disasm(v);
-        return
-    }
-
-    let mut cpu = Cpu::init(v);
-    let mut windows = gui::Gui::init();
-    windows.render(&cpu);
-    let mut breakpoints : ~[u16] = ~[];
-    'main : loop {
+fn event_loop(mut cpu: Cpu, mut windows: gui::Gui, mut breakpoints: ~[u16]) -> (uint,~[u16]) {
+    loop {
         match nc::wgetch(nc::stdscr) {
             115 => {                //s
                 cpu.step();
@@ -104,7 +73,7 @@ fn main() {
                     }
                 }
             },
-            113 => break 'main,
+            113 => return (1, ~[]),
             98 => {                 //b  -> breakpoint
                 let s = getstring("Enter breakpoint location:\n");
                 let noption = std::u16::parse_bytes(s.trim().to_owned().into_bytes(),16);
@@ -117,17 +86,50 @@ fn main() {
                     None => cpu.buf.push_str(format!("Failed to add breakpoint {}\n", s.clone()))
                 }
             },
-            114 => {                //r 
-                cpu = Cpu::init(v);
-                windows = gui::Gui::init();
-                cpu.buf.push_str("CPU reset\n"); 
-                windows.render(&cpu); 
-            },
+            114 => return (0, breakpoints),               //r 
             100 => { nc::endwin(); windows.render(&cpu); nc::refresh(); },        //d
             _ => ()
         }
     }
-    nc::endwin();
+}
+
+
+fn main() {
+    let args = os::args();
+    let opts = ~[optflag("d", "disasm", "Print disassembled file")];
+    let matches = match getopts(args.tail(), opts) {
+        Ok(m) => m,
+        Err(_) => { println!("Argument parse failed"); print_usage(args[0]); return }
+    };
+    let fpath = if !matches.free.is_empty() {
+        matches.free[0].clone()
+    } else {
+        print_usage(args[0]);
+        return;
+    };
+    let memval = File::open(&Path::new(fpath)).read_to_end();
+    let v = match memval {
+        Ok(v) => v,
+        Err(e) => fail!(e)
+    };
+    if matches.opt_present("d") {
+        print_disasm(v);
+        return
+    }
+
+
+    let mut breakpoints : ~[u16] = ~[];
+    let mut status = 0;
+    while status == 0 {
+        let cpu = Cpu::init(v);
+        let mut windows = gui::Gui::init();
+        windows.listing = cpu::disassemble(cpu.ram.arr);
+        windows.render(&cpu);
+        let (s, b) = event_loop(cpu, windows, breakpoints.clone());
+        breakpoints = b;
+        status = s;
+        nc::endwin();
+    }
 }
 
 fn str2bytes(s : &str) -> ~[u8] {
