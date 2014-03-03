@@ -1,8 +1,0 @@
-rm -rf lib
-mkdir lib
-pushd lib
-git clone https://github.com/jeaye/ncurses-rs.git
-pushd ncurses-rs
-make clean && make .build_lib
-popd
-popd

@@ -16,5 +16,5 @@ with open(sys.argv[1]) as f:
             barr.append(big)
             barr.append(little)
 
-with open(sys.argv[1].partition(".")[0], "wb") as f:
+with open(sys.argv[1].partition(".")[0] + ".bin", "wb") as f:
     f.write(bytearray(barr))
