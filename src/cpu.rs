@@ -205,7 +205,7 @@ impl Cpu {
             Absolute(address) => {
                 self.ram.store(address, val, self.inst.bw)
             },
-            _ => fail!("Invalid addressing mode")
+            Const(_) => true
         };
         if !success { ncurses:: endwin(); println!("{:?}", self.ram.deparr);self.status = Off }
     }
@@ -377,7 +377,10 @@ fn BIC(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval & !srcval) 
 fn BIS(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.store(destval | srcval) }
 fn XOR(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval ^ srcval) }
 fn AND(cpu: &mut Cpu, destval: u16, srcval: u16) { cpu.set_and_store(destval & srcval) }
-fn DADD(_:&mut Cpu, _: u16, _: u16) { fail!("Not implemented") }
+fn DADD(cpu:&mut Cpu, _: u16, _: u16) { 
+        ncurses::endwin();
+        println!("DADD ERROR \n{}", cpu.inst);
+}
 
 impl Cpu {
 
