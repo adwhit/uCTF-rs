@@ -6,24 +6,23 @@ An msp430 emulator/debugger written in rust. It implemnts the interrupt features
 ### Usage
 
 To build, first make sure you are running the lastest build of rust (try the [rust-nightly](https://launchpad.net/~hansjorg/+archive/rust) repos), then run
-```./configure && make```
+```
+make dep
+make
+```
 
 The ```images``` folder contains hex dumps of the microcorruption levels. To compile them into executables, run
 ```
-tools/makebin.py images/IMAGE.hex
+make buildbins
 ```
 
 To execute the programs, run
 ```
-./uctf images/IMAGE
+./uctf images/IMAGE.bin
 ```
 Once inside the debugger, use s, c, f, r, b, d and q to navigate.
 
-Run 
-```
-./uctf images/IMAGE -d
-```
-to dump the disassembled programme instructions to stdout.
+The -d flag will dump the disassembled programme instructions to stdout and exit.
 
 ### What does it look like?
 
@@ -31,7 +30,7 @@ to dump the disassembled programme instructions to stdout.
 
 ### It's buggy!
 
-Please file an issue.
+I know! Please file an issue.
 
 ### Why does this exist?
 
