@@ -3,6 +3,7 @@
 extern crate ncurses;
 extern crate collections;
 extern crate getopts;
+extern crate rand;
 
 use cpu::{Cpu, GetInput, Normal, Success, Off};
 use std::io::{File, stdin};

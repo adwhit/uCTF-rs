@@ -1,5 +1,6 @@
 use mem::{MemUtil, Ram, Regs};
-use std::{fmt, rand};
+use std::fmt;
+use rand;
 use collections::HashSet;
 use ncurses;
 
