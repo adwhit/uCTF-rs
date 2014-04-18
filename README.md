@@ -20,6 +20,9 @@ To execute the programs, run
 ```
 ./uctf images/IMAGE.bin
 ```
+
+The first two levels are provided, - you will have to unlock the rest!
+
 Once inside the debugger, use s, c, f, r, b, d and q to navigate.
 
 The -d flag will dump the disassembled programme instructions to stdout and exit.
@@ -28,11 +31,6 @@ The -d flag will dump the disassembled programme instructions to stdout and exit
 
 ![uCTF](tools/uCTF.png)
 
-### It's buggy!
-
-I know! Please file an issue.
-
 ### Why does this exist?
 
-It's a [hackerschool](https://www.hackerschool.com) project I made to learn about rust, assembly, emulation and ncurses.
-
+It's a [hackerschool](https://www.hackerschool.com) project I made to learn about rust, assembly, emulators and ncurses.
