@@ -34,3 +34,8 @@ The -d flag will dump the disassembled programme instructions to stdout and exit
 ### Why does this exist?
 
 It's a [hackerschool](https://www.hackerschool.com) project I made to learn about rust, assembly, emulators and ncurses.
+
+### Why does this STILL exist? (Update 2017-08-03)
+
+I made this a long time ago and have thought about fixing it to compile on modern Rust,
+but I think I prefer it as a time-capsule. The tildes! They're so beautiful!
